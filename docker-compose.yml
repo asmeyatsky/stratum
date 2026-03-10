@@ -1,0 +1,78 @@
+# =============================================================================
+# Stratum — Docker Compose for on-premises deployment
+#
+# Usage:
+#   cp .env.example .env          # configure environment variables
+#   docker compose up -d          # start all services
+#   docker compose logs -f        # follow logs
+#   docker compose down           # stop all services
+#
+# The stratum-api service is the main application. All configuration is
+# injected via environment variables for 12-factor compliance.
+# =============================================================================
+
+services:
+  stratum-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stratum:latest
+    container_name: stratum-api
+    restart: unless-stopped
+    ports:
+      - "${STRATUM_PORT:-8000}:8000"
+
+    environment:
+      # --- Core application ---
+      STRATUM_HOST: "0.0.0.0"
+      STRATUM_PORT: "8000"
+      STRATUM_WORKERS: "${STRATUM_WORKERS:-4}"
+      STRATUM_LOG_LEVEL: "${STRATUM_LOG_LEVEL:-info}"
+
+      # --- Authentication ---
+      STRATUM_API_KEY: "${STRATUM_API_KEY:-}"
+      STRATUM_PARTNER_KEY: "${STRATUM_PARTNER_KEY:-}"
+
+      # --- AI Narrative (Claude) ---
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+
+      # --- Vulnerability Database (NIST NVD) ---
+      NVD_API_KEY: "${NVD_API_KEY:-}"
+
+      # --- SonarQube Integration ---
+      SONARQUBE_TOKEN: "${SONARQUBE_TOKEN:-}"
+      SONARQUBE_URL: "${SONARQUBE_URL:-http://localhost:9000}"
+      SONARQUBE_ORGANIZATION: "${SONARQUBE_ORGANIZATION:-}"
+
+      # --- Webhook Dispatcher ---
+      WEBHOOK_SIGNING_SECRET: "${WEBHOOK_SIGNING_SECRET:-}"
+
+      # --- Database (future — BigQuery / PostgreSQL) ---
+      DATABASE_URL: "${DATABASE_URL:-}"
+
+    volumes:
+      # Persist generated reports and analysis output
+      - stratum-data:/app/data
+      - stratum-reports:/app/reports
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+          cpus: "0.5"
+
+volumes:
+  stratum-data:
+    driver: local
+  stratum-reports:
+    driver: local

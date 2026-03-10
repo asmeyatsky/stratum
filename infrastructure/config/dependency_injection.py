@@ -20,6 +20,8 @@ Design Decisions:
     - Fallback adapters used when optional services are unavailable:
       * NoOpNarrativeAdapter when no ANTHROPIC_API_KEY
       * JsonReportAdapter when pango/WeasyPrint unavailable
+    - Phase 2 connectors (GitHub, Jira) are optional — wired only when
+      environment variables are present. ``None`` signals "not configured".
 """
 
 from __future__ import annotations
@@ -50,6 +52,11 @@ class Container:
     All port-typed fields are guaranteed non-None — fallback adapters are used
     when optional services (Claude API, WeasyPrint) are unavailable. This
     eliminates null-checking throughout the codebase.
+
+    Phase 2 connector fields (``github_adapter``, ``jira_adapter``) are
+    ``None`` when the corresponding environment variables are not set.
+    Router code checks for ``None`` and falls back to per-request
+    token-based adapter construction.
     """
 
     # Infrastructure adapters (port-compliant — always non-None)
@@ -58,6 +65,10 @@ class Container:
     nvd_adapter: Any  # VulnerabilityDbPort
     narrative_adapter: Any  # AINarrativePort (ClaudeNarrativeAdapter or NoOpNarrativeAdapter)
     report_adapter: Any  # ReportGeneratorPort (WeasyprintReportAdapter or JsonReportAdapter)
+
+    # Phase 2 connectors (optional — None when env vars not set)
+    github_adapter: Any | None  # GitHubPort (GitHubAdapter or None)
+    jira_adapter: Any | None  # JiraPort (JiraAdapter or None)
 
     # Domain services
     evolution_service: EvolutionAnalysisService
@@ -71,6 +82,10 @@ class Container:
         *,
         anthropic_api_key: str | None = None,
         nvd_api_key: str | None = None,
+        github_token: str | None = None,
+        jira_url: str | None = None,
+        jira_email: str | None = None,
+        jira_token: str | None = None,
     ) -> Container:
         """Create a fully wired Container with all dependencies.
 
@@ -83,6 +98,14 @@ class Container:
                 Falls back to ``ANTHROPIC_API_KEY`` env var.
             nvd_api_key: NIST NVD API key for higher rate limits.
                 Falls back to ``NVD_API_KEY`` env var.
+            github_token: GitHub personal access token or App installation token.
+                Falls back to ``GITHUB_TOKEN`` env var. Optional.
+            jira_url: Jira Cloud instance URL.
+                Falls back to ``JIRA_URL`` env var. Optional.
+            jira_email: Jira user email for API auth.
+                Falls back to ``JIRA_EMAIL`` env var. Optional.
+            jira_token: Jira API token.
+                Falls back to ``JIRA_TOKEN`` env var. Optional.
 
         Returns:
             A fully initialised :class:`Container`.
@@ -127,6 +150,46 @@ class Container:
             )
             report_adapter = JsonReportAdapter()
 
+        # --- Phase 2 connectors (optional) ---
+
+        # GitHub adapter
+        github_adapter: Any | None = None
+        resolved_github_token = github_token or os.environ.get("GITHUB_TOKEN")
+        if resolved_github_token:
+            try:
+                from infrastructure.adapters.github_adapter import GitHubAdapter
+                github_adapter = GitHubAdapter(token=resolved_github_token)
+                logger.info("GitHub adapter enabled (token from environment)")
+            except Exception as exc:
+                logger.warning("GitHub adapter init failed (%s) — connector disabled", exc)
+        else:
+            logger.info(
+                "No GITHUB_TOKEN — GitHub connector not pre-configured. "
+                "Users can connect via POST /api/connectors/github/connect."
+            )
+
+        # Jira adapter
+        jira_adapter: Any | None = None
+        resolved_jira_url = jira_url or os.environ.get("JIRA_URL")
+        resolved_jira_email = jira_email or os.environ.get("JIRA_EMAIL")
+        resolved_jira_token = jira_token or os.environ.get("JIRA_TOKEN")
+        if resolved_jira_url and resolved_jira_email and resolved_jira_token:
+            try:
+                from infrastructure.adapters.jira_adapter import JiraAdapter
+                jira_adapter = JiraAdapter(
+                    base_url=resolved_jira_url,
+                    email=resolved_jira_email,
+                    api_token=resolved_jira_token,
+                )
+                logger.info("Jira adapter enabled (credentials from environment)")
+            except Exception as exc:
+                logger.warning("Jira adapter init failed (%s) — connector disabled", exc)
+        else:
+            logger.info(
+                "No JIRA_URL/JIRA_EMAIL/JIRA_TOKEN — Jira connector not pre-configured. "
+                "Users can connect via POST /api/connectors/jira/connect."
+            )
+
         # --- Domain services (stateless, no infrastructure dependencies) ---
 
         evolution_service = EvolutionAnalysisService()
@@ -140,6 +203,8 @@ class Container:
             nvd_adapter=nvd_adapter,
             narrative_adapter=narrative_adapter,
             report_adapter=report_adapter,
+            github_adapter=github_adapter,
+            jira_adapter=jira_adapter,
             evolution_service=evolution_service,
             commit_quality_service=commit_quality_service,
             dependency_risk_service=dependency_risk_service,

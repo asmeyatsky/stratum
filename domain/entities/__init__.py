@@ -4,6 +4,7 @@ from domain.entities.file_change import FileChange
 from domain.entities.dependency import Dependency
 from domain.entities.vulnerability import Vulnerability
 from domain.entities.risk_report import RiskReport, ComponentRisk, FileHotspot
+from domain.entities.jira_issue import JiraIssue
 
 __all__ = [
     "Commit",
@@ -14,4 +15,5 @@ __all__ = [
     "RiskReport",
     "ComponentRisk",
     "FileHotspot",
+    "JiraIssue",
 ]
