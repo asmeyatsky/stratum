@@ -13,6 +13,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../../api/client';
 import type { DimensionScore } from '../../types';
 import SeverityBadge from '../../components/SeverityBadge';
+import ExportButton from '../../components/ExportButton';
 
 function getScoreColor(score: number): string {
   if (score >= 7) return '#22c55e';
@@ -233,9 +234,23 @@ export default function DimensionsView({
 
       {/* Detail Table */}
       <div className="space-y-2">
-        <h3 className="mb-2 text-sm font-semibold text-navy-200">
-          Dimension Details
-        </h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-navy-200">
+            Dimension Details
+          </h3>
+          <ExportButton
+            data={dimensions.map((d) => ({
+              id: d.id,
+              name: d.name,
+              score: d.score,
+              severity: d.severity,
+              weight: d.weight,
+              description: d.description,
+              evidence: d.evidence.join('; '),
+            }))}
+            filename={`dimensions-${projectId}`}
+          />
+        </div>
         {[...dimensions]
           .sort((a, b) => a.score - b.score)
           .map((dim) => (

@@ -33,6 +33,7 @@ from typing import Any
 
 from domain.services.evolution_analysis_service import EvolutionAnalysisService
 from domain.services.commit_quality_service import CommitQualityService
+from domain.services.design_antipattern_service import DesignAntipatternService
 from domain.services.dependency_risk_service import DependencyRiskService
 from domain.services.risk_aggregation_service import RiskAggregationService
 
@@ -73,6 +74,7 @@ class Container:
     # Domain services
     evolution_service: EvolutionAnalysisService
     commit_quality_service: CommitQualityService
+    design_antipattern_service: DesignAntipatternService
     dependency_risk_service: DependencyRiskService
     risk_aggregation_service: RiskAggregationService
 
@@ -194,6 +196,7 @@ class Container:
 
         evolution_service = EvolutionAnalysisService()
         commit_quality_service = CommitQualityService()
+        design_antipattern_service = DesignAntipatternService()
         dependency_risk_service = DependencyRiskService()
         risk_aggregation_service = RiskAggregationService()
 
@@ -207,6 +210,7 @@ class Container:
             jira_adapter=jira_adapter,
             evolution_service=evolution_service,
             commit_quality_service=commit_quality_service,
+            design_antipattern_service=design_antipattern_service,
             dependency_risk_service=dependency_risk_service,
             risk_aggregation_service=risk_aggregation_service,
         )

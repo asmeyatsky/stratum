@@ -8,8 +8,11 @@ Architectural Intent:
     commands and queries. No domain logic lives here.
 
     - Lifespan handler initialises the DI Container once at startup.
+    - Structured JSON logging configured before app creation.
     - CORS middleware configured for the React development server.
+    - Correlation ID and rate-limit middleware for observability and protection.
     - Routers are thin HTTP adapters mounted under /api.
+    - WebSocket endpoint mounted for real-time analysis progress.
     - OpenAPI docs available at /docs (Swagger UI) and /redoc (ReDoc).
 
 Usage:
@@ -27,8 +30,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from infrastructure.config.dependency_injection import Container
+from infrastructure.logging_config import setup_logging
+from infrastructure.persistence.database import init_db
+from presentation.api.middleware.correlation import CorrelationIdMiddleware
+from presentation.api.middleware.rate_limit import RateLimitMiddleware
 from presentation.api.routers import analysis, auth, billing, github, jira, projects
+from presentation.api.routers import websocket
 from presentation.api.schemas import HealthResponse
+
+# Configure structured logging before anything else
+setup_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     On startup:
         - Create the DI Container (Composition Root) and store it on app.state.
+        - Initialise the database (create tables if they don't exist).
         - All adapters are wired eagerly so misconfiguration fails fast.
 
     On shutdown:
@@ -52,6 +64,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     container = Container.create()
     app.state.container = container
     logger.info("Dependency container ready")
+
+    logger.info("Initialising database")
+    await init_db()
+    logger.info("Database initialised")
 
     yield
 
@@ -97,6 +113,14 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Additional middleware (applied after CORS)
+# ---------------------------------------------------------------------------
+
+app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
+
+# ---------------------------------------------------------------------------
 # Mount routers
 # ---------------------------------------------------------------------------
 
@@ -106,6 +130,7 @@ app.include_router(analysis.router)
 app.include_router(github.router)
 app.include_router(jira.router)
 app.include_router(billing.router)
+app.include_router(websocket.router)
 
 
 # ---------------------------------------------------------------------------

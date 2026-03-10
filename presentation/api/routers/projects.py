@@ -2,12 +2,10 @@
 Project management router — CRUD for analysis projects.
 
 Architectural Intent:
-    Thin HTTP adapter for project lifecycle operations. Projects are stored
-    in-memory for the MVP; the data model is designed to migrate cleanly to
-    BigQuery persistence in production.
-
-    No domain logic lives here — the router validates input via Pydantic
-    schemas, manages the in-memory store, and returns serialised responses.
+    Thin HTTP adapter for project lifecycle operations. Projects are persisted
+    to the database via ``ProjectRepository``. No domain logic lives here —
+    the router validates input via Pydantic schemas, delegates to the
+    repository, and returns serialised responses.
 """
 
 from __future__ import annotations
@@ -17,7 +15,10 @@ from datetime import datetime, UTC
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from infrastructure.persistence.database import get_db_session
+from infrastructure.persistence.repository import ProjectRepository
 from presentation.api.dependencies import get_current_user
 from presentation.api.schemas import (
     AnalysisStatus,
@@ -29,22 +30,21 @@ from presentation.api.schemas import (
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-# ---------------------------------------------------------------------------
-# In-memory project store (MVP — replaced by BigQuery in production)
-# ---------------------------------------------------------------------------
 
-_projects: dict[str, dict] = {}
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def _project_to_response(data: dict) -> ProjectResponse:
-    """Map internal dict to response schema."""
+    """Map a repository dict to the API response schema."""
     return ProjectResponse(
         project_id=data["project_id"],
         name=data["name"],
         description=data["description"],
         scenario=data["scenario"],
-        created_at=data["created_at"],
-        updated_at=data["updated_at"],
+        created_at=data["created_at"] if isinstance(data["created_at"], str) else data["created_at"].isoformat() if data["created_at"] else "",
+        updated_at=data["updated_at"] if isinstance(data["updated_at"], str) else data["updated_at"].isoformat() if data["updated_at"] else "",
         analysis_status=data.get("analysis_status", AnalysisStatus.pending),
         overall_health_score=data.get("overall_health_score"),
     )
@@ -65,23 +65,24 @@ def _project_to_response(data: dict) -> ProjectResponse:
 async def create_project(
     body: ProjectCreate,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProjectResponse:
     """Create a new analysis project."""
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(UTC)
     project_id = f"prj_{uuid.uuid4().hex[:12]}"
 
-    project_data = {
+    repo = ProjectRepository(session)
+    project_data = await repo.create({
         "project_id": project_id,
         "name": body.name,
         "description": body.description,
         "scenario": body.scenario.value,
-        "created_at": now,
-        "updated_at": now,
-        "analysis_status": AnalysisStatus.pending,
+        "analysis_status": AnalysisStatus.pending.value,
         "overall_health_score": None,
         "owner_id": current_user.user_id,
-    }
-    _projects[project_id] = project_data
+        "created_at": now,
+        "updated_at": now,
+    })
 
     return _project_to_response(project_data)
 
@@ -94,16 +95,14 @@ async def create_project(
 )
 async def list_projects(
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProjectList:
     """List all projects, most recently updated first."""
-    sorted_projects = sorted(
-        _projects.values(),
-        key=lambda p: p["updated_at"],
-        reverse=True,
-    )
+    repo = ProjectRepository(session)
+    projects = await repo.list_all()
     return ProjectList(
-        projects=[_project_to_response(p) for p in sorted_projects],
-        total=len(sorted_projects),
+        projects=[_project_to_response(p) for p in projects],
+        total=len(projects),
     )
 
 
@@ -116,9 +115,11 @@ async def list_projects(
 async def get_project(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ProjectResponse:
     """Get a single project by ID."""
-    project = _projects.get(project_id)
+    repo = ProjectRepository(session)
+    project = await repo.get_by_id(project_id)
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -136,11 +137,13 @@ async def get_project(
 async def delete_project(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> None:
     """Delete a project by ID."""
-    if project_id not in _projects:
+    repo = ProjectRepository(session)
+    deleted = await repo.delete(project_id)
+    if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project {project_id} not found.",
         )
-    del _projects[project_id]

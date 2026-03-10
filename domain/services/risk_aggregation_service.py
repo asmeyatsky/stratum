@@ -43,6 +43,7 @@ class RiskAggregationService:
         bug_magnets: list[BugMagnet],
         churn_anomalies: list[ChurnAnomaly],
         commits: list[Commit],
+        p3_scores: dict[str, RiskScore] | None = None,
     ) -> RiskReport:
         """Assemble the full P6 integrated risk report."""
         # Merge all dimension scores
@@ -50,6 +51,10 @@ class RiskAggregationService:
         all_scores.update(p1_scores)
         all_scores.update(p2_scores)
         all_scores.update(p4_scores)
+
+        if p3_scores:
+            for key, score in p3_scores.items():
+                all_scores[key] = score
 
         # Fill remaining dimensions with defaults for MVP
         for dim in ("code_complexity", "code_duplication", "coordination_risk",

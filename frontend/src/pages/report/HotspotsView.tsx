@@ -3,6 +3,7 @@ import { ArrowUpDown, Clock, GitBranch, Bug, Users } from 'lucide-react';
 import api from '../../api/client';
 import type { FileHotspot } from '../../types';
 import SeverityBadge from '../../components/SeverityBadge';
+import ExportButton from '../../components/ExportButton';
 
 function getEffortColor(effort: string): { bg: string; text: string } {
   switch (effort) {
@@ -128,9 +129,25 @@ export default function HotspotsView({
         <h3 className="text-sm font-semibold text-navy-200">
           Top 25 File Hotspots
         </h3>
-        <span className="text-xs text-navy-500">
-          {hotspots.length} files analyzed
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-navy-500">
+            {hotspots.length} files analyzed
+          </span>
+          <ExportButton
+            data={hotspots.map((h) => ({
+              file_path: h.file_path,
+              risk_score: h.risk_score,
+              severity: h.severity,
+              churn_rate: h.churn_rate,
+              complexity: h.complexity,
+              bug_correlation: h.bug_correlation,
+              ownership_fragmentation: h.ownership_fragmentation,
+              effort_estimate: h.effort_estimate,
+              indicators: h.indicators.join('; '),
+            }))}
+            filename={`hotspots-${projectId}`}
+          />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border border-navy-800 bg-navy-800/20">

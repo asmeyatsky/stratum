@@ -6,17 +6,27 @@ Architectural Intent:
     and the application's Composition Root. Dependencies defined here pull from
     the Container singleton initialised at application startup (stored in
     app.state) so that routers never import infrastructure directly.
+
+    Authentication supports three strategies (checked in order):
+    1. ``Authorization: Bearer <JWT>`` header — decoded via PyJWT.
+    2. ``X-API-Key`` header — matched against ``STRATUM_API_KEY`` env var.
+    3. Dev mode — if no ``STRATUM_API_KEY`` is set, a static user is returned.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Annotated
 
+import jwt
 from fastapi import Depends, Header, HTTPException, Request, status
 
+from infrastructure.auth.jwt_handler import decode_access_token
 from infrastructure.config.dependency_injection import Container
 from presentation.api.schemas import UserInfo
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -41,31 +51,72 @@ def get_container(request: Request) -> Container:
 # Authentication
 # ---------------------------------------------------------------------------
 
-_MVP_API_KEY: str | None = os.environ.get("STRATUM_API_KEY")
-
-
 async def get_current_user(
+    authorization: Annotated[str | None, Header()] = None,
     x_api_key: Annotated[str | None, Header()] = None,
 ) -> UserInfo:
-    """Validate the request API key and return the authenticated user.
+    """Validate the request credentials and return the authenticated user.
 
-    MVP implementation:
-    - If ``STRATUM_API_KEY`` env var is set, the request must provide a
-      matching ``X-API-Key`` header.
-    - If the env var is *not* set, authentication is open (development mode).
-    - In Phase 2 this will be replaced with JWT / OAuth validation.
+    Authentication strategies (checked in order):
+
+    1. **JWT Bearer token** — ``Authorization: Bearer <token>`` header is
+       decoded and its claims mapped to ``UserInfo``.
+    2. **Static API key** — ``X-API-Key`` header is compared against the
+       ``STRATUM_API_KEY`` environment variable.
+    3. **Dev mode** — if ``STRATUM_API_KEY`` is not set and no token is
+       provided, a static development user is returned.
     """
-    expected_key = _MVP_API_KEY or os.environ.get("STRATUM_API_KEY")
+    # --- Strategy 1: JWT Bearer token ---
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        if token:
+            try:
+                payload = decode_access_token(token)
+                return UserInfo(
+                    user_id=payload.get("user_id", "unknown"),
+                    email=payload.get("email", "unknown@stratum.dev"),
+                    name=payload.get("name", "Unknown User"),
+                    role=payload.get("role", "analyst"),
+                )
+            except jwt.ExpiredSignatureError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has expired. Please log in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            except jwt.InvalidTokenError:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token. Please provide a valid JWT.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
+    # --- Strategy 2: Static API key ---
+    expected_key = os.environ.get("STRATUM_API_KEY")
 
     if expected_key:
-        if not x_api_key or x_api_key != expected_key:
+        if x_api_key and x_api_key == expected_key:
+            return UserInfo(
+                user_id="usr_apikey_001",
+                email="apikey@stratum.dev",
+                name="API Key User",
+                role="analyst",
+            )
+        # If an API key is configured, require valid auth
+        if not x_api_key and not authorization:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or missing API key. Provide X-API-Key header.",
+                detail="Authentication required. Provide Authorization or X-API-Key header.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if x_api_key and x_api_key != expected_key:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid API key.",
                 headers={"WWW-Authenticate": "ApiKey"},
             )
 
-    # In MVP, return a static user. Phase 2 will decode a JWT here.
+    # --- Strategy 3: Dev mode (no STRATUM_API_KEY set) ---
     return UserInfo(
         user_id="usr_mvp_001",
         email="analyst@stratum.dev",

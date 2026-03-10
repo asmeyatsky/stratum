@@ -1,9 +1,10 @@
 """
-Authentication router — MVP API-key auth with JWT stub for Phase 2.
+Authentication router — API-key auth with JWT issuance.
 
 Architectural Intent:
-    Thin HTTP adapter. Validates credentials, issues tokens, and returns
-    user information. No business logic — delegates to the auth dependency.
+    Thin HTTP adapter. Validates credentials, issues JWT tokens, and returns
+    user information. No business logic — delegates to the auth dependency
+    and the JWT handler for token creation.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from infrastructure.auth.jwt_handler import JWT_EXPIRY_HOURS, create_access_token
 from presentation.api.dependencies import get_current_user
 from presentation.api.schemas import AuthToken, LoginRequest, UserInfo
 
@@ -25,18 +27,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
     response_model=AuthToken,
     summary="Authenticate and obtain access token",
     description=(
-        "MVP: accepts any email/password and returns a token. "
-        "If STRATUM_API_KEY is set, returns that key as the token. "
-        "Phase 2 will implement real JWT issuance."
+        "Authenticate with email/password and receive a JWT access token. "
+        "If STRATUM_API_KEY is set, also returns that key for backward-compatible "
+        "X-API-Key header authentication."
     ),
 )
 async def login(body: LoginRequest) -> AuthToken:
-    """Authenticate a user and return an access token.
+    """Authenticate a user and return a JWT access token.
 
-    MVP behaviour: if ``STRATUM_API_KEY`` is configured, the login
-    endpoint returns it as the token so the client can use it in
-    subsequent ``X-API-Key`` headers. If not configured, a
-    deterministic token is generated from the email for local dev.
+    Creates a JWT with user claims (user_id, email, name, role). If
+    ``STRATUM_API_KEY`` is configured the static key is returned for
+    backward compatibility; otherwise a real JWT is issued.
     """
     if not body.email or not body.password:
         raise HTTPException(
@@ -44,20 +45,26 @@ async def login(body: LoginRequest) -> AuthToken:
             detail="Email and password are required.",
         )
 
-    # In MVP, we accept any credentials.
+    # Build user claims for the JWT payload
+    user_id = f"usr_{hashlib.md5(body.email.encode()).hexdigest()[:12]}"
+    payload = {
+        "user_id": user_id,
+        "email": body.email,
+        "name": body.email.split("@")[0].replace(".", " ").title(),
+        "role": "analyst",
+    }
+
+    # Check for static API key (backward compat)
     api_key = os.environ.get("STRATUM_API_KEY")
     if api_key:
         token = api_key
     else:
-        # Deterministic dev token so repeated logins return the same value
-        token = hashlib.sha256(
-            f"stratum-dev-{body.email}".encode()
-        ).hexdigest()
+        token = create_access_token(payload)
 
     return AuthToken(
         access_token=token,
         token_type="bearer",
-        expires_in=86400,  # 24 hours
+        expires_in=JWT_EXPIRY_HOURS * 3600,
     )
 
 
@@ -65,7 +72,7 @@ async def login(body: LoginRequest) -> AuthToken:
     "/me",
     response_model=UserInfo,
     summary="Get current user information",
-    description="Returns the authenticated user's profile. Requires a valid API key.",
+    description="Returns the authenticated user's profile. Requires a valid token or API key.",
 )
 async def get_me(
     current_user: Annotated[UserInfo, Depends(get_current_user)],

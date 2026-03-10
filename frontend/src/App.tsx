@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
+import ComparisonView from './pages/ComparisonView';
 
 export default function App() {
   return (
@@ -12,6 +13,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<ProjectList />} />
           <Route path="projects/:id/*" element={<ProjectDetail />} />
+          <Route path="compare" element={<ComparisonView />} />
           <Route
             path="settings"
             element={

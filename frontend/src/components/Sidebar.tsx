@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   FolderKanban,
+  GitCompareArrows,
   Settings,
   Layers,
 } from 'lucide-react';
@@ -9,6 +10,7 @@ import {
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects', icon: FolderKanban, label: 'Projects' },
+  { to: '/compare', icon: GitCompareArrows, label: 'Compare' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

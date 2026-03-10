@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import api from '../../api/client';
 import type { ComponentRisk, Severity } from '../../types';
 import SeverityBadge from '../../components/SeverityBadge';
+import ExportButton from '../../components/ExportButton';
 import { ArrowUpDown, AlertTriangle } from 'lucide-react';
 
 function getSeverityForScore(score: number): Severity {
@@ -196,6 +197,22 @@ export default function ComponentsView({
 
       {/* Component Table */}
       <div className="rounded-xl border border-navy-800 bg-navy-800/20">
+        <div className="flex items-center justify-between border-b border-navy-800 px-4 py-3">
+          <h3 className="text-sm font-semibold text-navy-200">
+            Component Details
+          </h3>
+          <ExportButton
+            data={components.map((c) => ({
+              name: c.name,
+              path: c.path,
+              composite_score: c.composite_score,
+              severity: c.severity,
+              file_count: c.file_count,
+              systemic_risks: c.systemic_risks.join('; '),
+            }))}
+            filename={`components-${projectId}`}
+          />
+        </div>
         <table className="w-full">
           <thead>
             <tr className="border-b border-navy-800">

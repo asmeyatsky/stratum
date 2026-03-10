@@ -13,6 +13,7 @@ import {
 } from 'recharts';
 import api from '../../api/client';
 import type { FeatureBugTrend } from '../../types';
+import ExportButton from '../../components/ExportButton';
 
 type TimeRange = '30' | '90' | '180';
 
@@ -143,20 +144,33 @@ export default function TrendsView({
         <h3 className="text-sm font-semibold text-navy-200">
           Feature / Bug Trends
         </h3>
-        <div className="flex rounded-lg border border-navy-800 bg-navy-800/40 p-0.5">
-          {(['30', '90', '180'] as TimeRange[]).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                timeRange === range
-                  ? 'bg-navy-700 text-white'
-                  : 'text-navy-400 hover:text-navy-200'
-              }`}
-            >
-              {range}d
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <ExportButton
+            data={filteredTrends.map((t) => ({
+              period: t.period,
+              features: t.features,
+              bugs: t.bugs,
+              refactors: t.refactors,
+              bug_fix_ratio: t.bug_fix_ratio,
+              total_commits: t.total_commits,
+            }))}
+            filename={`trends-${projectId}`}
+          />
+          <div className="flex rounded-lg border border-navy-800 bg-navy-800/40 p-0.5">
+            {(['30', '90', '180'] as TimeRange[]).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                  timeRange === range
+                    ? 'bg-navy-700 text-white'
+                    : 'text-navy-400 hover:text-navy-200'
+                }`}
+              >
+                {range}d
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

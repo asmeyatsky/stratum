@@ -2,8 +2,8 @@
 AnalysisWorkflow — Concrete DAG wiring for the Stratum analysis pipeline.
 
 Architectural Intent:
-- Wires P1, P2, P4 analysis as parallel steps (no mutual data dependency)
-- P6 aggregation depends on all three analysis steps
+- Wires P1, P2, P3, P4 analysis as parallel steps (no mutual data dependency)
+- P6 aggregation depends on all four analysis steps
 - AI narrative generation depends on P6 output
 - PDF report generation depends on the AI narrative (which enriches the report)
 - All infrastructure access goes through constructor-injected ports; the
@@ -11,13 +11,13 @@ Architectural Intent:
 
 Execution Graph::
 
-    ┌──────────┐   ┌──────────┐   ┌──────────┐
-    │  P1      │   │  P2      │   │  P4      │
-    │ Evolution│   │ Commit   │   │ Dep Risk │
-    │ Analysis │   │ Quality  │   │ Analysis │
-    └────┬─────┘   └────┬─────┘   └────┬─────┘
-         │              │              │
-         └──────────┬───┴──────────────┘
+    ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+    │  P1      │   │  P2      │   │  P3      │   │  P4      │
+    │ Evolution│   │ Commit   │   │ Design   │   │ Dep Risk │
+    │ Analysis │   │ Quality  │   │ Anti-pat │   │ Analysis │
+    └────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘
+         │              │              │              │
+         └──────────┬───┴──────────┬───┴──────────────┘
                     │
               ┌─────▼─────┐
               │  P6       │
@@ -60,6 +60,7 @@ from domain.ports.ai_narrative_port import AINarrativePort
 from domain.ports.report_generator_port import ReportGeneratorPort
 from domain.services.evolution_analysis_service import EvolutionAnalysisService
 from domain.services.commit_quality_service import CommitQualityService
+from domain.services.design_antipattern_service import DesignAntipatternService
 from domain.services.dependency_risk_service import DependencyRiskService
 from domain.services.risk_aggregation_service import RiskAggregationService
 
@@ -88,8 +89,8 @@ def build_analysis_dag(
     - ``manifest_paths`` (list[str]): Paths to dependency manifest files.
 
     After execution the context will contain results keyed by step name
-    (``p1_analysis``, ``p2_analysis``, ``p4_analysis``, ``p6_aggregation``,
-    ``ai_narrative``, ``pdf_report``).
+    (``p1_analysis``, ``p2_analysis``, ``p3_analysis``, ``p4_analysis``,
+    ``p6_aggregation``, ``ai_narrative``, ``pdf_report``).
 
     Args:
         git_log_port: Adapter for git history ingestion.
@@ -104,6 +105,7 @@ def build_analysis_dag(
     # Domain services — stateless, instantiated once per workflow
     evolution_svc = EvolutionAnalysisService()
     commit_quality_svc = CommitQualityService()
+    design_antipattern_svc = DesignAntipatternService()
     dependency_risk_svc = DependencyRiskService()
     risk_aggregation_svc = RiskAggregationService()
 
@@ -180,6 +182,38 @@ def build_analysis_dag(
             "p2_scores": p2_scores,
         }
 
+    async def p3_analysis(ctx: dict[str, Any]) -> dict[str, Any]:
+        """P3 — Design Anti-Pattern Detection (parallel)."""
+        commits = ctx.get("_commits")
+        if commits is None:
+            logger.info("P3: parsing git log independently")
+            commits = await git_log_port.parse(ctx["git_log_source"])
+
+        god_classes = design_antipattern_svc.detect_god_classes(commits)
+        feature_envy = design_antipattern_svc.detect_feature_envy(commits)
+        shotgun_surgery = design_antipattern_svc.detect_shotgun_surgery(commits)
+        data_classes = design_antipattern_svc.detect_data_classes(commits)
+
+        p3_scores = design_antipattern_svc.compute_risk_scores(
+            god_classes=god_classes,
+            feature_envy=feature_envy,
+            shotgun_surgery=shotgun_surgery,
+            data_classes=data_classes,
+        )
+
+        logger.info(
+            "P3: found %d god classes, %d feature envy, %d shotgun surgery, %d data classes",
+            len(god_classes), len(feature_envy), len(shotgun_surgery), len(data_classes),
+        )
+
+        return {
+            "god_classes": god_classes,
+            "feature_envy": feature_envy,
+            "shotgun_surgery": shotgun_surgery,
+            "data_classes": data_classes,
+            "p3_scores": p3_scores,
+        }
+
     async def p4_analysis(ctx: dict[str, Any]) -> dict[str, Any]:
         """P4 — Dependency Risk Analysis (parallel)."""
         manifest_paths: list[str] = ctx.get("manifest_paths", [])
@@ -231,9 +265,10 @@ def build_analysis_dag(
         }
 
     async def p6_aggregation(ctx: dict[str, Any]) -> dict[str, Any]:
-        """P6 — Integrated Risk Aggregation (depends on P1 + P2 + P4)."""
+        """P6 — Integrated Risk Aggregation (depends on P1 + P2 + P3 + P4)."""
         p1 = ctx["p1_analysis"]
         p2 = ctx["p2_analysis"]
+        p3 = ctx["p3_analysis"]
         p4 = ctx["p4_analysis"]
 
         report = risk_aggregation_svc.build_report(
@@ -242,6 +277,7 @@ def build_analysis_dag(
             p1_scores=p1["p1_scores"],
             p2_scores=p2["p2_scores"],
             p4_scores=p4["p4_scores"],
+            p3_scores=p3["p3_scores"],
             knowledge_risks=p1["knowledge_risks"],
             bug_magnets=p2["bug_magnets"],
             churn_anomalies=p1["churn_anomalies"],
@@ -293,8 +329,9 @@ def build_analysis_dag(
     dag = DAGOrchestrator()
     dag.add_step("p1_analysis", p1_analysis)
     dag.add_step("p2_analysis", p2_analysis)
+    dag.add_step("p3_analysis", p3_analysis)
     dag.add_step("p4_analysis", p4_analysis)
-    dag.add_step("p6_aggregation", p6_aggregation, depends_on=["p1_analysis", "p2_analysis", "p4_analysis"])
+    dag.add_step("p6_aggregation", p6_aggregation, depends_on=["p1_analysis", "p2_analysis", "p3_analysis", "p4_analysis"])
     dag.add_step("ai_narrative", ai_narrative, depends_on=["p6_aggregation"])
     dag.add_step("pdf_report", pdf_report, depends_on=["ai_narrative"])
 

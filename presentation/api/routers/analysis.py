@@ -29,10 +29,13 @@ from fastapi import (
     UploadFile,
     status,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from application.commands.analyze_repository import AnalyzeRepositoryCommand
 from application.dtos.analysis_dto import AnalysisRequest, AnalysisResultDTO
 from infrastructure.config.dependency_injection import Container
+from infrastructure.persistence.database import get_db_session
+from infrastructure.persistence.repository import ProjectRepository
 from presentation.api.dependencies import get_container, get_current_user
 from presentation.api.schemas import (
     AnalysisResponse,
@@ -49,9 +52,6 @@ from presentation.api.schemas import (
     TrendResponse,
     UserInfo,
 )
-
-# Projects store is shared with the projects router
-from presentation.api.routers.projects import _projects
 
 logger = logging.getLogger(__name__)
 
@@ -70,9 +70,10 @@ _analysis_status: dict[str, dict] = {}
 # ---------------------------------------------------------------------------
 
 
-def _require_project(project_id: str) -> dict:
+async def _require_project(project_id: str, session: AsyncSession) -> dict:
     """Raise 404 if project does not exist; return project data."""
-    project = _projects.get(project_id)
+    repo = ProjectRepository(session)
+    project = await repo.get_by_id(project_id)
     if project is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -150,6 +151,8 @@ def _dto_to_top_risks(dto: AnalysisResultDTO) -> list[TopRiskResponse]:
 
 async def _run_analysis_background(
     project_id: str,
+    project_name: str,
+    project_scenario: str,
     git_log_path: str,
     manifest_paths: list[str],
     container: Container,
@@ -160,12 +163,8 @@ async def _run_analysis_background(
     updates the project's status and stores the ``AnalysisResultDTO``.
     Temporary files are cleaned up after analysis completes.
     """
-    project = _projects.get(project_id)
-    if project is None:
-        logger.error("Background analysis: project %s vanished", project_id)
-        return
+    from infrastructure.persistence.database import async_session_factory
 
-    project["analysis_status"] = AnalysisStatus.running
     _analysis_status[project_id] = {
         "status": AnalysisStatus.running,
         "started_at": datetime.now(UTC).isoformat(),
@@ -186,19 +185,24 @@ async def _run_analysis_background(
 
         request = AnalysisRequest(
             git_log_source=git_log_path,
-            project_name=project["name"],
-            scenario=project["scenario"],
+            project_name=project_name,
+            scenario=project_scenario,
             output_path=output_path,
             manifest_paths=manifest_paths,
         )
 
         result = await command.execute(request)
 
-        # Store result and update status
+        # Store result and update project status in the database
         _analysis_results[project_id] = result
-        project["analysis_status"] = AnalysisStatus.completed
-        project["overall_health_score"] = result.overall_health_score
-        project["updated_at"] = datetime.now(UTC).isoformat()
+
+        async with async_session_factory() as session:
+            repo = ProjectRepository(session)
+            await repo.update(project_id, {
+                "analysis_status": AnalysisStatus.completed.value,
+                "overall_health_score": result.overall_health_score,
+            })
+
         _analysis_status[project_id].update({
             "status": AnalysisStatus.completed,
             "completed_at": datetime.now(UTC).isoformat(),
@@ -213,8 +217,13 @@ async def _run_analysis_background(
 
     except Exception as exc:
         logger.exception("Background analysis failed for project %s", project_id)
-        project["analysis_status"] = AnalysisStatus.failed
-        project["updated_at"] = datetime.now(UTC).isoformat()
+
+        async with async_session_factory() as session:
+            repo = ProjectRepository(session)
+            await repo.update(project_id, {
+                "analysis_status": AnalysisStatus.failed.value,
+            })
+
         _analysis_status[project_id].update({
             "status": AnalysisStatus.failed,
             "completed_at": datetime.now(UTC).isoformat(),
@@ -252,6 +261,7 @@ async def trigger_analysis(
     background_tasks: BackgroundTasks,
     container: Annotated[Container, Depends(get_container)],
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
     git_log: UploadFile = File(
         ..., description="Git log file (git log --numstat --pretty=format:'%H|%ae|%an|%aI|%s')"
     ),
@@ -265,7 +275,7 @@ async def trigger_analysis(
     The git log file and manifest files are uploaded as multipart form data.
     Analysis is executed asynchronously; the endpoint returns 202 immediately.
     """
-    project = _require_project(project_id)
+    project = await _require_project(project_id, session)
 
     # Persist uploaded files to temp directory
     upload_dir = tempfile.mkdtemp(prefix="stratum_upload_")
@@ -286,17 +296,23 @@ async def trigger_analysis(
 
     started_at = datetime.now(UTC).isoformat()
 
+    # Update project status to pending in the database
+    repo = ProjectRepository(session)
+    await repo.update(project_id, {
+        "analysis_status": AnalysisStatus.pending.value,
+    })
+
     # Schedule background execution
     background_tasks.add_task(
         _run_analysis_background,
         project_id,
+        project["name"],
+        project["scenario"],
         git_log_path,
         manifest_paths,
         container,
     )
 
-    project["analysis_status"] = AnalysisStatus.pending
-    project["updated_at"] = datetime.now(UTC).isoformat()
     _analysis_status[project_id] = {
         "status": AnalysisStatus.pending,
         "started_at": started_at,
@@ -321,9 +337,10 @@ async def trigger_analysis(
 async def get_report(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> FullReportResponse:
     """Return the complete analysis report for a project."""
-    _require_project(project_id)
+    await _require_project(project_id, session)
 
     dto = _analysis_results.get(project_id)
     if dto is None:
@@ -368,9 +385,10 @@ async def get_report(
 async def get_dimensions(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> DimensionScoresResponse:
     """Return dimension scores for the latest analysis."""
-    _require_project(project_id)
+    await _require_project(project_id, session)
 
     dto = _analysis_results.get(project_id)
     if dto is None:
@@ -395,9 +413,10 @@ async def get_dimensions(
 async def get_components(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ComponentRiskListResponse:
     """Return the component risk matrix for the latest analysis."""
-    _require_project(project_id)
+    await _require_project(project_id, session)
 
     dto = _analysis_results.get(project_id)
     if dto is None:
@@ -421,9 +440,10 @@ async def get_components(
 async def get_hotspots(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> FileHotspotListResponse:
     """Return file hotspots for the latest analysis."""
-    _require_project(project_id)
+    await _require_project(project_id, session)
 
     dto = _analysis_results.get(project_id)
     if dto is None:
@@ -450,6 +470,7 @@ async def get_hotspots(
 async def get_trends(
     project_id: str,
     current_user: Annotated[UserInfo, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> TrendResponse:
     """Return feature/bug/refactor trends for the latest analysis.
 
@@ -457,7 +478,7 @@ async def get_trends(
     P2 (commit quality) analysis. If no analysis has been run, or commit
     data is insufficient, an empty trends list is returned.
     """
-    _require_project(project_id)
+    await _require_project(project_id, session)
 
     dto = _analysis_results.get(project_id)
     if dto is None:
