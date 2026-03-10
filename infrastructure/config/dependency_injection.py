@@ -17,8 +17,9 @@ Design Decisions:
     - Configuration sourced from environment variables with sensible defaults.
     - Adapters are created eagerly (fail-fast on misconfiguration).
     - Domain services are stateless and shared across requests.
-    - The Claude adapter is optional — if no API key is provided, it is set
-      to ``None`` and callers must handle the absence.
+    - Fallback adapters used when optional services are unavailable:
+      * NoOpNarrativeAdapter when no ANTHROPIC_API_KEY
+      * JsonReportAdapter when pango/WeasyPrint unavailable
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from domain.services.evolution_analysis_service import EvolutionAnalysisService
 from domain.services.commit_quality_service import CommitQualityService
@@ -36,7 +38,7 @@ from infrastructure.adapters.git_log_parser import GitLogParser
 from infrastructure.adapters.manifest_parser import ManifestParser
 from infrastructure.adapters.nvd_vulnerability_adapter import NvdVulnerabilityAdapter
 from infrastructure.adapters.claude_narrative_adapter import ClaudeNarrativeAdapter
-from infrastructure.adapters.weasyprint_report_adapter import WeasyprintReportAdapter
+from infrastructure.adapters.fallback_adapters import NoOpNarrativeAdapter, JsonReportAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -45,28 +47,17 @@ logger = logging.getLogger(__name__)
 class Container:
     """Composition root holding all wired dependencies.
 
-    Access adapters and services via the container instance returned by
-    :meth:`create`. All fields are typed against their concrete classes
-    (not protocols) — the container is infrastructure-aware by design.
-
-    Attributes:
-        git_log_parser: Adapter for parsing git log output files.
-        manifest_parser: Adapter for parsing dependency manifests.
-        nvd_adapter: Adapter for querying the NIST NVD vulnerability database.
-        claude_adapter: Adapter for AI narrative generation (``None`` if no API key).
-        report_adapter: Adapter for PDF report rendering.
-        evolution_service: P1 — code and team evolution analysis.
-        commit_quality_service: P2 — commit quality and bug magnet detection.
-        dependency_risk_service: P4 — library dependency risk analysis.
-        risk_aggregation_service: P6 — integrated risk model assembly.
+    All port-typed fields are guaranteed non-None — fallback adapters are used
+    when optional services (Claude API, WeasyPrint) are unavailable. This
+    eliminates null-checking throughout the codebase.
     """
 
-    # Infrastructure adapters
-    git_log_parser: GitLogParser
+    # Infrastructure adapters (port-compliant — always non-None)
+    git_log_parser: Any  # GitLogPort
     manifest_parser: ManifestParser
-    nvd_adapter: NvdVulnerabilityAdapter
-    claude_adapter: ClaudeNarrativeAdapter | None
-    report_adapter: WeasyprintReportAdapter
+    nvd_adapter: Any  # VulnerabilityDbPort
+    narrative_adapter: Any  # AINarrativePort (ClaudeNarrativeAdapter or NoOpNarrativeAdapter)
+    report_adapter: Any  # ReportGeneratorPort (WeasyprintReportAdapter or JsonReportAdapter)
 
     # Domain services
     evolution_service: EvolutionAnalysisService
@@ -84,15 +75,14 @@ class Container:
         """Create a fully wired Container with all dependencies.
 
         Configuration is resolved from explicit arguments first, then
-        environment variables.
+        environment variables. Fallback adapters are used for optional
+        services (Claude narrative, PDF rendering).
 
         Args:
             anthropic_api_key: Anthropic API key for Claude narrative generation.
-                Falls back to ``ANTHROPIC_API_KEY`` env var. If neither is set,
-                the Claude adapter is omitted.
+                Falls back to ``ANTHROPIC_API_KEY`` env var.
             nvd_api_key: NIST NVD API key for higher rate limits.
-                Falls back to ``NVD_API_KEY`` env var. If neither is set,
-                the adapter runs unauthenticated (slower rate limit).
+                Falls back to ``NVD_API_KEY`` env var.
 
         Returns:
             A fully initialised :class:`Container`.
@@ -102,34 +92,40 @@ class Container:
         # --- Infrastructure adapters ---
 
         git_log_parser = GitLogParser()
-        logger.debug("Created GitLogParser adapter")
 
         manifest_parser = ManifestParser()
-        logger.debug("Created ManifestParser adapter")
 
         resolved_nvd_key = nvd_api_key or os.environ.get("NVD_API_KEY")
         nvd_adapter = NvdVulnerabilityAdapter(api_key=resolved_nvd_key)
-        logger.debug(
-            "Created NvdVulnerabilityAdapter (authenticated=%s)",
-            resolved_nvd_key is not None,
-        )
 
+        # Narrative adapter: Claude if API key available, otherwise no-op fallback
         resolved_anthropic_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-        claude_adapter: ClaudeNarrativeAdapter | None = None
+        narrative_adapter: Any
         if resolved_anthropic_key:
             try:
-                claude_adapter = ClaudeNarrativeAdapter(api_key=resolved_anthropic_key)
-                logger.debug("Created ClaudeNarrativeAdapter")
-            except ValueError as exc:
-                logger.warning("Claude adapter not available: %s", exc)
+                narrative_adapter = ClaudeNarrativeAdapter(api_key=resolved_anthropic_key)
+                logger.info("Claude narrative adapter enabled")
+            except Exception as exc:
+                logger.warning("Claude adapter init failed (%s) — using fallback", exc)
+                narrative_adapter = NoOpNarrativeAdapter()
         else:
             logger.info(
-                "No Anthropic API key provided — Claude narrative adapter disabled. "
-                "Set ANTHROPIC_API_KEY to enable AI-generated narratives."
+                "No ANTHROPIC_API_KEY — using placeholder narrative adapter. "
+                "Set ANTHROPIC_API_KEY for Claude-powered executive summaries."
             )
+            narrative_adapter = NoOpNarrativeAdapter()
 
-        report_adapter = WeasyprintReportAdapter()
-        logger.debug("Created WeasyprintReportAdapter")
+        # Report adapter: WeasyPrint if pango available, otherwise JSON fallback
+        try:
+            from infrastructure.adapters.weasyprint_report_adapter import WeasyprintReportAdapter
+            report_adapter: Any = WeasyprintReportAdapter()
+            logger.info("WeasyPrint PDF adapter enabled")
+        except (OSError, RuntimeError, ImportError):
+            logger.info(
+                "WeasyPrint unavailable (missing pango) — using JSON report fallback. "
+                "Install pango for PDF output: brew install pango (macOS)"
+            )
+            report_adapter = JsonReportAdapter()
 
         # --- Domain services (stateless, no infrastructure dependencies) ---
 
@@ -137,13 +133,12 @@ class Container:
         commit_quality_service = CommitQualityService()
         dependency_risk_service = DependencyRiskService()
         risk_aggregation_service = RiskAggregationService()
-        logger.debug("Created domain services (P1, P2, P4, P6)")
 
         container = cls(
             git_log_parser=git_log_parser,
             manifest_parser=manifest_parser,
             nvd_adapter=nvd_adapter,
-            claude_adapter=claude_adapter,
+            narrative_adapter=narrative_adapter,
             report_adapter=report_adapter,
             evolution_service=evolution_service,
             commit_quality_service=commit_quality_service,
