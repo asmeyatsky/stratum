@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   AreaChart,
   Area,
@@ -11,20 +11,11 @@ import {
   Line,
   Legend,
 } from 'recharts';
-import api from '../../api/client';
 import type { FeatureBugTrend } from '../../types';
 import ExportButton from '../../components/ExportButton';
+import { useProjectContext } from '../ProjectDetail';
 
 type TimeRange = '30' | '90' | '180';
-
-function Skeleton() {
-  return (
-    <div className="animate-pulse space-y-6">
-      <div className="h-80 rounded-xl bg-navy-800/40" />
-      <div className="h-64 rounded-xl bg-navy-800/40" />
-    </div>
-  );
-}
 
 interface CustomTooltipProps {
   active?: boolean;
@@ -58,33 +49,10 @@ function RatioTooltip({ active, payload, label }: CustomTooltipProps) {
   );
 }
 
-export default function TrendsView({
-  projectId,
-}: {
-  projectId: string;
-}) {
-  const [trends, setTrends] = useState<FeatureBugTrend[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>('90');
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getTrends(projectId)
-      .then((data) => {
-        if (!cancelled) setTrends(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
+export default function TrendsView() {
+  const { report } = useProjectContext();
+  const trends = report?.trends ?? [];
+  const [timeRange, setTimeRange] = useState<TimeRange>('180');
 
   const filteredTrends = useMemo(() => {
     if (trends.length === 0) return [];
@@ -96,7 +64,7 @@ export default function TrendsView({
       (t) => new Date(t.period) >= cutoff,
     );
 
-    return filtered.length > 0 ? filtered : trends.slice(-days);
+    return filtered.length > 0 ? filtered : trends;
   }, [trends, timeRange]);
 
   const totals = useMemo(() => {
@@ -118,16 +86,6 @@ export default function TrendsView({
       filteredTrends.length
     );
   }, [filteredTrends]);
-
-  if (loading) return <Skeleton />;
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-8 text-center text-sm text-red-400">
-        {error}
-      </div>
-    );
-  }
 
   if (trends.length === 0) {
     return (
@@ -154,7 +112,7 @@ export default function TrendsView({
               bug_fix_ratio: t.bug_fix_ratio,
               total_commits: t.total_commits,
             }))}
-            filename={`trends-${projectId}`}
+            filename="trends"
           />
           <div className="flex rounded-lg border border-navy-800 bg-navy-800/40 p-0.5">
             {(['30', '90', '180'] as TimeRange[]).map((range) => (
@@ -245,10 +203,6 @@ export default function TrendsView({
               tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}
               tickLine={false}
-              tickFormatter={(value: string) => {
-                const date = new Date(value);
-                return `${date.getMonth() + 1}/${date.getDate()}`;
-              }}
             />
             <YAxis
               tick={{ fill: '#64748b', fontSize: 11 }}
@@ -313,10 +267,6 @@ export default function TrendsView({
               tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}
               tickLine={false}
-              tickFormatter={(value: string) => {
-                const date = new Date(value);
-                return `${date.getMonth() + 1}/${date.getDate()}`;
-              }}
             />
             <YAxis
               tick={{ fill: '#64748b', fontSize: 11 }}

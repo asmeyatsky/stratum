@@ -18,6 +18,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime, UTC
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import (
@@ -63,6 +64,7 @@ router = APIRouter(prefix="/api/projects", tags=["analysis"])
 
 _analysis_results: dict[str, AnalysisResultDTO] = {}
 _analysis_status: dict[str, dict] = {}
+_trend_data: dict[str, list[dict]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +229,7 @@ async def _run_analysis_background(
         _analysis_status[project_id].update({
             "status": AnalysisStatus.failed,
             "completed_at": datetime.now(UTC).isoformat(),
-            "message": f"Analysis failed: {exc}",
+            "message": "Analysis failed. Check server logs for details.",
         })
 
     finally:
@@ -286,9 +288,22 @@ async def trigger_analysis(
         f.write(content)
 
     manifest_paths: list[str] = []
+    upload_dir_resolved = Path(upload_dir).resolve()
     for manifest_file in manifests:
         if manifest_file.filename:
-            manifest_path = os.path.join(upload_dir, manifest_file.filename)
+            safe_name = os.path.basename(manifest_file.filename)
+            if not safe_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid manifest filename.",
+                )
+            manifest_path = os.path.join(upload_dir, safe_name)
+            resolved_path = Path(manifest_path).resolve()
+            if not resolved_path.is_relative_to(upload_dir_resolved):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid manifest filename.",
+                )
             manifest_content = await manifest_file.read()
             with open(manifest_path, "wb") as f:
                 f.write(manifest_content)
@@ -354,7 +369,7 @@ async def get_report(
         if current_status == AnalysisStatus.failed:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Analysis failed: {status_info.get('message', 'Unknown error')}",
+                detail="Analysis failed. Check server logs for details.",
             )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -487,19 +502,20 @@ async def get_trends(
             detail="No analysis report available. Trigger an analysis first.",
         )
 
-    # Trend data is not directly available on the DTO in Phase 1.
-    # We derive a placeholder from the analysis timestamp to show the
-    # API contract. In Phase 2, the commit quality service will emit
-    # per-period breakdowns that feed this endpoint.
-    #
-    # For now, return the top_risks as a proxy indicator that the
-    # analysis ran, and provide the structure the frontend expects.
+    raw_trends = _trend_data.get(project_id, [])
     trends: list[TrendDataPoint] = []
+    for t in raw_trends:
+        total = t.get("total_commits", 0)
+        bugs = t.get("bugs", 0)
+        trends.append(TrendDataPoint(
+            period=t["period"],
+            features=t.get("features", 0),
+            bugs=bugs,
+            refactors=t.get("refactors", 0),
+            bug_fix_ratio=round(bugs / total, 2) if total > 0 else 0.0,
+            total_commits=total,
+        ))
 
-    # If we have dimension scores, we at least know analysis ran —
-    # return an empty trends list with the correct shape so the
-    # frontend can render the chart (it will be empty until Phase 2
-    # adds per-period commit classification).
     return TrendResponse(
         project_id=project_id,
         trends=trends,

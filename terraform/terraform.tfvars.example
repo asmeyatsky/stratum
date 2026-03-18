@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars and fill in values
+project_id  = "my-gcp-project"
+region      = "us-central1"
+environment = "prod"
+domain      = "app.stratum.dev"  # Leave empty to skip custom domain setup
+
+# Database
+db_tier = "db-f1-micro"   # Use db-custom-2-7680 for production
+db_ha   = false            # Set true for production
+
+# Cloud Run
+api_cpu           = "1"
+api_memory        = "512Mi"
+api_min_instances = 0       # Set 1+ for production to avoid cold starts
+api_max_instances = 10

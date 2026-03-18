@@ -3,6 +3,11 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/ProjectList';
 import ProjectDetail from './pages/ProjectDetail';
+import ProjectOverview from './pages/report/OverviewTab';
+import DimensionsView from './pages/report/DimensionsView';
+import ComponentsView from './pages/report/ComponentsView';
+import HotspotsView from './pages/report/HotspotsView';
+import TrendsView from './pages/report/TrendsView';
 import ComparisonView from './pages/ComparisonView';
 
 export default function App() {
@@ -12,7 +17,13 @@ export default function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<ProjectList />} />
-          <Route path="projects/:id/*" element={<ProjectDetail />} />
+          <Route path="projects/:id" element={<ProjectDetail />}>
+            <Route index element={<ProjectOverview />} />
+            <Route path="dimensions" element={<DimensionsView />} />
+            <Route path="components" element={<ComponentsView />} />
+            <Route path="hotspots" element={<HotspotsView />} />
+            <Route path="trends" element={<TrendsView />} />
+          </Route>
           <Route path="compare" element={<ComparisonView />} />
           <Route
             path="settings"

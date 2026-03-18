@@ -19,6 +19,7 @@ import hmac
 import logging
 from datetime import datetime, UTC
 from typing import Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
@@ -194,10 +195,51 @@ class UsageResponse(BaseModel):
     analyses_limit: int = Field(description="Analysis limit per period (-1 = unlimited)")
 
 
+class CancelResponse(BaseModel):
+    user_id: str = Field(description="User identifier")
+    cancelled: bool = Field(description="Whether cancellation was processed")
+    effective_date: str = Field(description="When the cancellation takes effect (end of billing period)")
+    message: str = Field(default="", description="Status message")
+
+
 class WebhookResponse(BaseModel):
     received: bool = Field(description="Whether the webhook was processed")
     event_type: str = Field(default="", description="Stripe event type")
     message: str = Field(default="", description="Processing result")
+
+
+# ---------------------------------------------------------------------------
+# Redirect URL validation
+# ---------------------------------------------------------------------------
+
+_ALLOWED_REDIRECT_HOSTS: set[str] = {
+    "app.stratum.dev",
+    "localhost:5173",
+    "localhost:3000",
+    "",  # allow relative URLs
+}
+
+
+def _validate_redirect_url(url: str) -> str:
+    """Validate that a redirect URL points to an allowed host.
+
+    Args:
+        url: The URL to validate.
+
+    Returns:
+        The original URL if valid.
+
+    Raises:
+        HTTPException: If the URL host is not in the allowed set.
+    """
+    parsed = urlparse(url)
+    host = parsed.netloc  # includes port if present
+    if host not in _ALLOWED_REDIRECT_HOSTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Redirect URL host not allowed: {host}",
+        )
+    return url
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +274,10 @@ async def subscribe(
     current_user: Annotated[UserInfo, Depends(get_current_user)],
 ) -> SubscribeResponse:
     """Create a Stripe Checkout Session stub for the selected plan."""
+    # Validate redirect URLs
+    _validate_redirect_url(body.success_url)
+    _validate_redirect_url(body.cancel_url)
+
     # Validate plan exists
     valid_plan_ids = {tier["plan_id"] for tier in _PRICING_TIERS}
     if body.plan_id not in valid_plan_ids:
@@ -291,6 +337,44 @@ async def get_usage(
         repositories_limit=10,
         analyses_this_period=7,
         analyses_limit=50,
+    )
+
+
+@router.post(
+    "/cancel",
+    response_model=CancelResponse,
+    summary="Cancel subscription",
+    description=(
+        "Cancel the current subscription. The cancellation takes effect at the "
+        "end of the current billing period. (Stub — Stripe SDK not yet wired.)"
+    ),
+)
+async def cancel_subscription(
+    current_user: Annotated[UserInfo, Depends(get_current_user)],
+) -> CancelResponse:
+    """Cancel the current subscription (stub).
+
+    In production this will call stripe.Subscription.modify() to set
+    cancel_at_period_end=True.
+    """
+    now = datetime.now(UTC)
+    if now.month == 12:
+        period_end = now.replace(year=now.year + 1, month=1, day=1,
+                                  hour=0, minute=0, second=0, microsecond=0)
+    else:
+        period_end = now.replace(month=now.month + 1, day=1,
+                                  hour=0, minute=0, second=0, microsecond=0)
+
+    logger.info("Subscription cancellation stub: user=%s", current_user.user_id)
+
+    return CancelResponse(
+        user_id=current_user.user_id,
+        cancelled=True,
+        effective_date=period_end.isoformat(),
+        message=(
+            "Subscription cancellation scheduled (stub). Access continues until "
+            "the end of the current billing period."
+        ),
     )
 
 

@@ -13,11 +13,12 @@ import type { Project, Scenario } from '../types';
 import HealthScore from '../components/HealthScore';
 
 const SCENARIOS: { value: Scenario; label: string }[] = [
-  { value: 'default', label: 'Default' },
-  { value: 'pre-release', label: 'Pre-Release' },
-  { value: 'onboarding', label: 'Onboarding' },
-  { value: 'tech-debt', label: 'Tech Debt' },
-  { value: 'post-incident', label: 'Post-Incident' },
+  { value: 'cto_onboarding', label: 'CTO Onboarding' },
+  { value: 'ma_due_diligence', label: 'M&A Due Diligence' },
+  { value: 'vendor_audit', label: 'Vendor Audit' },
+  { value: 'post_merger', label: 'Post-Merger' },
+  { value: 'decommission', label: 'Decommission' },
+  { value: 'oss_assessment', label: 'OSS Assessment' },
 ];
 
 function SkeletonRow() {
@@ -52,9 +53,10 @@ export default function ProjectList() {
   const [showModal, setShowModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newScenario, setNewScenario] = useState<Scenario>('default');
+  const [newScenario, setNewScenario] = useState<Scenario>('cto_onboarding');
   const [searchQuery, setSearchQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const loadProjects = useCallback(() => {
     setLoading(true);
@@ -78,7 +80,7 @@ export default function ProjectList() {
       await api.createProject({ name: newName.trim(), scenario: newScenario });
       setShowModal(false);
       setNewName('');
-      setNewScenario('default');
+      setNewScenario('cto_onboarding');
       loadProjects();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create project');
@@ -88,7 +90,7 @@ export default function ProjectList() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return;
+    setDeleteConfirmId(null);
     setDeletingId(id);
     try {
       await api.deleteProject(id);
@@ -233,7 +235,7 @@ export default function ProjectList() {
                       className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                         project.status === 'completed'
                           ? 'bg-green-500/10 text-green-400'
-                          : project.status === 'analyzing'
+                          : project.status === 'running'
                             ? 'bg-blue-500/10 text-blue-400'
                             : project.status === 'failed'
                               ? 'bg-red-500/10 text-red-400'
@@ -245,10 +247,10 @@ export default function ProjectList() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
-                      onClick={() => handleDelete(project.id)}
+                      onClick={() => setDeleteConfirmId(project.id)}
                       disabled={deletingId === project.id}
                       className="rounded p-1.5 text-navy-600 transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-                      title="Delete project"
+                      aria-label={`Delete project ${project.name}`}
                     >
                       {deletingId === project.id ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -264,10 +266,57 @@ export default function ProjectList() {
         </table>
       </div>
 
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-xl border border-navy-700 bg-navy-900 p-6 shadow-2xl"
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-white">
+                Delete Project
+              </h2>
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="rounded p-1 text-navy-500 hover:bg-navy-800 hover:text-navy-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-6 text-sm text-navy-400">
+              Are you sure you want to delete this project? This action cannot
+              be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 rounded-lg border border-navy-700 px-4 py-2 text-sm font-medium text-navy-300 transition hover:bg-navy-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(deleteConfirmId)}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border border-navy-700 bg-navy-900 p-6 shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl border border-navy-700 bg-navy-900 p-6 shadow-2xl"
+          >
             <div className="mb-5 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
                 New Project

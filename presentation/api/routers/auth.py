@@ -46,7 +46,7 @@ async def login(body: LoginRequest) -> AuthToken:
         )
 
     # Build user claims for the JWT payload
-    user_id = f"usr_{hashlib.md5(body.email.encode()).hexdigest()[:12]}"
+    user_id = f"usr_{hashlib.sha256(body.email.encode()).hexdigest()[:12]}"
     payload = {
         "user_id": user_id,
         "email": body.email,

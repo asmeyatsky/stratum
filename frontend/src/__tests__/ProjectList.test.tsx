@@ -29,11 +29,11 @@ describe('ProjectList', () => {
     renderWithRouter(<ProjectList />);
 
     await waitFor(() => {
-      expect(screen.getByText('default')).toBeInTheDocument();
+      expect(screen.getByText('cto_onboarding')).toBeInTheDocument();
     });
 
     await waitFor(() => {
-      expect(screen.getByText('pre-release')).toBeInTheDocument();
+      expect(screen.getByText('ma_due_diligence')).toBeInTheDocument();
     });
   });
 

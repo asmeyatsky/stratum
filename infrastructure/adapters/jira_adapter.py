@@ -69,6 +69,31 @@ class JiraAdapter:
     # Port implementation
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _sanitize_jql_filter(jql_filter: str) -> str:
+        """Sanitize a user-supplied JQL filter to prevent injection.
+
+        - Strips semicolons.
+        - Rejects if it contains ``ORDER BY`` (case-insensitive).
+        - Escapes single quotes by doubling them.
+        - Enforces a 500-character length limit.
+
+        Raises:
+            ValueError: If the filter is invalid.
+        """
+        if len(jql_filter) > 500:
+            raise ValueError("JQL filter exceeds maximum length of 500 characters")
+
+        sanitized = jql_filter.replace(";", "")
+
+        if "order by" in sanitized.lower():
+            raise ValueError("JQL filter must not contain ORDER BY clause")
+
+        # Escape single quotes by doubling them
+        sanitized = sanitized.replace("'", "''")
+
+        return sanitized
+
     async def get_project_issues(
         self,
         project_key: str,
@@ -83,7 +108,8 @@ class JiraAdapter:
         """
         jql = f"project = {project_key} ORDER BY created DESC"
         if jql_filter:
-            jql = f"project = {project_key} AND ({jql_filter}) ORDER BY created DESC"
+            sanitized = self._sanitize_jql_filter(jql_filter)
+            jql = f"project = {project_key} AND ({sanitized}) ORDER BY created DESC"
 
         issues: list[dict] = []
         start_at = 0

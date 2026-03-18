@@ -1,165 +1,100 @@
 import { http, HttpResponse } from 'msw';
-import type {
-  Project,
-  AnalysisReport,
-  DimensionScore,
-  ComponentRisk,
-  FileHotspot,
-  FeatureBugTrend,
-} from '../types';
 
-const mockProjects: Project[] = [
+// All mock data uses the API response format.
+// The client.ts mapping layer converts to frontend types.
+
+const mockApiProjects = [
   {
-    id: 'proj-1',
+    project_id: 'proj-1',
     name: 'Backend API',
-    scenario: 'default',
+    description: 'Main backend service',
+    scenario: 'cto_onboarding',
     created_at: '2026-01-15T10:00:00Z',
     updated_at: '2026-03-01T14:30:00Z',
-    last_analysis_at: '2026-03-01T14:30:00Z',
-    health_score: 7.2,
-    status: 'completed',
+    analysis_status: 'completed',
+    overall_health_score: 7.2,
   },
   {
-    id: 'proj-2',
+    project_id: 'proj-2',
     name: 'Frontend App',
-    scenario: 'pre-release',
+    description: 'React frontend',
+    scenario: 'ma_due_diligence',
     created_at: '2026-02-20T09:00:00Z',
     updated_at: '2026-03-05T11:00:00Z',
-    last_analysis_at: '2026-03-05T11:00:00Z',
-    health_score: 5.4,
-    status: 'completed',
+    analysis_status: 'completed',
+    overall_health_score: 5.4,
   },
 ];
 
-const mockDimensions: DimensionScore[] = [
-  {
-    id: 'dim-1',
-    name: 'Code Complexity',
-    score: 6.5,
-    severity: 'medium',
-    weight: 1.5,
-    evidence: ['Average cyclomatic complexity: 12.3', 'Deeply nested functions found in 8 files'],
-    description: 'Measures the structural complexity of the codebase',
-  },
-  {
-    id: 'dim-2',
-    name: 'Test Coverage',
-    score: 8.1,
-    severity: 'low',
-    weight: 1.0,
-    evidence: ['Overall coverage: 81%', 'Critical paths covered: 95%'],
-    description: 'Evaluates the breadth and depth of test coverage',
-  },
-  {
-    id: 'dim-3',
-    name: 'Code Churn',
-    score: 3.2,
-    severity: 'high',
-    weight: 1.2,
-    evidence: ['High churn in auth module', '15 files changed more than 20 times'],
-    description: 'Tracks the frequency of code changes over time',
-  },
-];
+// API-format dimension scores (dict, not array)
+const mockDimensionScores: Record<string, { value: number; severity: string; label: string; evidence: string }> = {
+  code_complexity: { value: 6.5, severity: 'medium', label: 'Code Complexity', evidence: 'Average cyclomatic complexity: 12.3' },
+  test_coverage: { value: 8.1, severity: 'low', label: 'Test Coverage', evidence: 'Overall coverage: 81%' },
+  code_churn: { value: 3.2, severity: 'high', label: 'Code Churn', evidence: 'High churn in auth module' },
+};
 
-const mockComponents: ComponentRisk[] = [
+// API-format component risks
+const mockApiComponents = [
   {
-    name: 'auth-service',
-    path: 'src/services/auth',
+    component_name: 'auth-service',
     composite_score: 7.8,
-    severity: 'high',
-    file_count: 12,
-    dimension_scores: { code_complexity: 8.1, code_churn: 7.5, test_coverage: 3.2 },
-    systemic_risks: ['Single point of failure', 'High coupling'],
+    systemic_risk: true,
+    dimension_scores: {
+      code_complexity: { value: 8.1, severity: 'high', label: 'Code Complexity', evidence: 'High' },
+      code_churn: { value: 7.5, severity: 'high', label: 'Code Churn', evidence: 'Elevated' },
+      test_coverage: { value: 3.2, severity: 'low', label: 'Test Coverage', evidence: 'Low' },
+    },
   },
   {
-    name: 'api-gateway',
-    path: 'src/gateway',
+    component_name: 'api-gateway',
     composite_score: 4.2,
-    severity: 'medium',
-    file_count: 8,
-    dimension_scores: { code_complexity: 5.0, code_churn: 3.5, test_coverage: 6.1 },
-    systemic_risks: [],
+    systemic_risk: false,
+    dimension_scores: {
+      code_complexity: { value: 5.0, severity: 'medium', label: 'Code Complexity', evidence: 'Moderate' },
+    },
   },
 ];
 
-const mockHotspots: FileHotspot[] = [
+// API-format hotspots
+const mockApiHotspots = [
   {
     file_path: 'src/services/auth/handler.ts',
-    risk_score: 8.9,
-    severity: 'critical',
-    churn_rate: 9.2,
-    complexity: 7.8,
-    bug_correlation: 8.5,
-    ownership_fragmentation: 6.3,
+    composite_risk_score: 8.9,
+    risk_indicators: { churn: 9.2, complexity: 7.8, bug_density: 8.5, ownership: 6.3 },
+    refactoring_recommendation: 'Split into smaller services',
     effort_estimate: 'large',
-    indicators: ['god-file', 'high-churn', 'bus-factor-1'],
   },
   {
     file_path: 'src/gateway/router.ts',
-    risk_score: 5.4,
-    severity: 'medium',
-    churn_rate: 4.1,
-    complexity: 6.2,
-    bug_correlation: 3.8,
-    ownership_fragmentation: 2.1,
+    composite_risk_score: 5.4,
+    risk_indicators: { churn: 4.1, complexity: 6.2, bug_density: 3.8 },
+    refactoring_recommendation: 'Reduce complexity',
     effort_estimate: 'medium',
-    indicators: ['moderate-complexity'],
   },
 ];
 
-const mockTrends: FeatureBugTrend[] = [
-  {
-    period: '2026-01-01',
-    features: 12,
-    bugs: 5,
-    refactors: 3,
-    bug_fix_ratio: 0.25,
-    total_commits: 20,
-  },
-  {
-    period: '2026-01-15',
-    features: 8,
-    bugs: 7,
-    refactors: 2,
-    bug_fix_ratio: 0.41,
-    total_commits: 17,
-  },
-  {
-    period: '2026-02-01',
-    features: 15,
-    bugs: 4,
-    refactors: 6,
-    bug_fix_ratio: 0.16,
-    total_commits: 25,
-  },
-  {
-    period: '2026-02-15',
-    features: 10,
-    bugs: 9,
-    refactors: 4,
-    bug_fix_ratio: 0.39,
-    total_commits: 23,
-  },
-  {
-    period: '2026-03-01',
-    features: 14,
-    bugs: 3,
-    refactors: 5,
-    bug_fix_ratio: 0.14,
-    total_commits: 22,
-  },
+// API-format trends
+const mockApiTrends = [
+  { period: '2026-01-01', features: 12, bugs: 5, refactors: 3, bug_fix_ratio: 0.25, total_commits: 20 },
+  { period: '2026-01-15', features: 8, bugs: 7, refactors: 2, bug_fix_ratio: 0.41, total_commits: 17 },
+  { period: '2026-02-01', features: 15, bugs: 4, refactors: 6, bug_fix_ratio: 0.16, total_commits: 25 },
 ];
 
-const mockReport: AnalysisReport = {
+// API-format full report
+const mockApiReport = {
   project_id: 'proj-1',
-  generated_at: '2026-03-01T14:30:00Z',
-  health_score: 7.2,
-  dimensions: mockDimensions,
-  components: mockComponents,
-  hotspots: mockHotspots,
-  trends: mockTrends,
-  summary:
-    'The codebase shows moderate health with key concerns in the auth-service module. Code churn is elevated, suggesting instability in core areas. Test coverage is strong overall but gaps exist in critical paths.',
+  project_name: 'Backend API',
+  scenario: 'cto_onboarding',
+  analysis_timestamp: '2026-03-01T14:30:00Z',
+  overall_health_score: 7.2,
+  dimension_scores: mockDimensionScores,
+  top_risks: [
+    { dimension: 'code_churn', value: 3.2, severity: 'high', label: 'Code Churn', evidence: 'High churn' },
+  ],
+  component_risks: mockApiComponents,
+  file_hotspots: mockApiHotspots,
+  ai_narrative: 'The codebase shows moderate health with key concerns in the auth-service module.',
+  pdf_output_path: '',
 };
 
 export const handlers = [
@@ -170,11 +105,11 @@ export const handlers = [
 
   // Projects
   http.get('/api/projects', () => {
-    return HttpResponse.json(mockProjects);
+    return HttpResponse.json({ projects: mockApiProjects, total: mockApiProjects.length });
   }),
 
   http.get('/api/projects/:id', ({ params }) => {
-    const project = mockProjects.find((p) => p.id === params.id);
+    const project = mockApiProjects.find((p) => p.project_id === params.id);
     if (!project) {
       return new HttpResponse(null, { status: 404 });
     }
@@ -183,42 +118,43 @@ export const handlers = [
 
   http.post('/api/projects', async ({ request }) => {
     const body = (await request.json()) as { name: string; scenario: string };
-    const newProject: Project = {
-      id: 'proj-new',
-      name: body.name,
-      scenario: body.scenario as Project['scenario'],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      last_analysis_at: null,
-      health_score: null,
-      status: 'pending',
-    };
-    return HttpResponse.json(newProject, { status: 201 });
+    return HttpResponse.json(
+      {
+        project_id: 'proj-new',
+        name: body.name,
+        description: '',
+        scenario: body.scenario || 'cto_onboarding',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        analysis_status: 'pending',
+        overall_health_score: null,
+      },
+      { status: 201 },
+    );
   }),
 
   http.delete('/api/projects/:id', () => {
     return new HttpResponse(null, { status: 204 });
   }),
 
-  // Report
+  // Report endpoints — all return API format
   http.get('/api/projects/:id/report', ({ params }) => {
-    const report = { ...mockReport, project_id: params.id as string };
-    return HttpResponse.json(report);
+    return HttpResponse.json({ ...mockApiReport, project_id: params.id as string });
   }),
 
   http.get('/api/projects/:id/report/dimensions', () => {
-    return HttpResponse.json(mockDimensions);
+    return HttpResponse.json({ project_id: 'proj-1', overall_health_score: 7.2, dimensions: mockDimensionScores });
   }),
 
   http.get('/api/projects/:id/report/components', () => {
-    return HttpResponse.json(mockComponents);
+    return HttpResponse.json({ project_id: 'proj-1', components: mockApiComponents });
   }),
 
   http.get('/api/projects/:id/report/hotspots', () => {
-    return HttpResponse.json(mockHotspots);
+    return HttpResponse.json({ project_id: 'proj-1', hotspots: mockApiHotspots });
   }),
 
   http.get('/api/projects/:id/report/trends', () => {
-    return HttpResponse.json(mockTrends);
+    return HttpResponse.json({ project_id: 'proj-1', trends: mockApiTrends });
   }),
 ];

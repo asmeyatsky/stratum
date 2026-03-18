@@ -25,6 +25,7 @@ Design Decisions:
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from datetime import datetime, UTC
@@ -32,6 +33,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, HttpUrl
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/partner", tags=["partner"])
 
@@ -139,10 +142,12 @@ async def verify_partner_key(
 ) -> str:
     """Validate the partner API key.
 
-    MVP implementation:
     - If ``STRATUM_PARTNER_KEY`` env var is set, the request must provide
       a matching ``X-Partner-Key`` header.
-    - If the env var is not set, authentication is open (development mode).
+    - If the env var is not set and ``STRATUM_DEV_MODE=true``, open access
+      is allowed (development mode only).
+    - If the env var is not set and dev mode is off, return 503 — the
+      partner API is not configured.
     - In Phase 4 this will be replaced with partner-scoped JWT validation.
 
     Returns:
@@ -157,8 +162,20 @@ async def verify_partner_key(
                 detail="Invalid or missing partner API key. Provide X-Partner-Key header.",
                 headers={"WWW-Authenticate": "PartnerKey"},
             )
+        return x_partner_key
 
-    return x_partner_key or "dev_partner"
+    # No partner key configured
+    if os.environ.get("STRATUM_DEV_MODE", "").lower() == "true":
+        logger.warning(
+            "Partner API open access — STRATUM_PARTNER_KEY not set and STRATUM_DEV_MODE=true. "
+            "Do NOT use this in production."
+        )
+        return x_partner_key or "dev_partner"
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Partner API not configured",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +313,42 @@ async def register_webhook(
         url=body.url,
         events=body.events,
         created_at=now,
+    )
+
+
+class WebhookListResponse(BaseModel):
+    webhooks: list[WebhookResponse] = Field(description="List of registered webhooks")
+    total: int = Field(description="Total webhook count")
+
+
+@router.get(
+    "/webhooks",
+    response_model=WebhookListResponse,
+    summary="List registered webhooks",
+    description="Retrieve all registered webhooks, optionally filtered by partner_id.",
+)
+async def list_webhooks(
+    partner_key: Annotated[str, Depends(verify_partner_key)],
+    partner_id: str | None = None,
+) -> WebhookListResponse:
+    """List all registered webhooks, optionally filtered by partner_id."""
+    webhooks = list(_webhooks.values())
+
+    if partner_id:
+        webhooks = [w for w in webhooks if w["partner_id"] == partner_id]
+
+    return WebhookListResponse(
+        webhooks=[
+            WebhookResponse(
+                webhook_id=w["webhook_id"],
+                partner_id=w["partner_id"],
+                url=w["url"],
+                events=w["events"],
+                created_at=w["created_at"],
+            )
+            for w in webhooks
+        ],
+        total=len(webhooks),
     )
 
 

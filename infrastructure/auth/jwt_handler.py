@@ -13,15 +13,43 @@ Architectural Intent:
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, UTC
 
 import jwt
 
-JWT_SECRET: str = os.environ.get(
-    "JWT_SECRET",
-    "stratum-dev-secret-change-in-production",
-)
+logger = logging.getLogger(__name__)
+
+_DEV_SECRET = "stratum-dev-only-not-for-production"
+
+
+def _resolve_jwt_secret() -> str:
+    """Resolve the JWT signing secret from environment.
+
+    - If ``JWT_SECRET`` is set, use it.
+    - If ``STRATUM_DEV_MODE=true``, fall back to a dev-only secret and log a
+      warning.
+    - Otherwise raise ``RuntimeError`` to prevent startup with no secret.
+    """
+    secret = os.environ.get("JWT_SECRET")
+    if secret:
+        return secret
+
+    if os.environ.get("STRATUM_DEV_MODE", "").lower() == "true":
+        logger.warning(
+            "JWT_SECRET not set — using dev-only secret because STRATUM_DEV_MODE=true. "
+            "Do NOT use this in production."
+        )
+        return _DEV_SECRET
+
+    raise RuntimeError(
+        "JWT_SECRET environment variable is required. "
+        "Set STRATUM_DEV_MODE=true to use a development-only secret."
+    )
+
+
+JWT_SECRET: str = _resolve_jwt_secret()
 JWT_ALGORITHM: str = "HS256"
 JWT_EXPIRY_HOURS: int = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
 

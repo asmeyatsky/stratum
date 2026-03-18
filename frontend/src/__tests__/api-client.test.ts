@@ -21,7 +21,7 @@ describe('API Client', () => {
   it('createProject sends payload and returns new project', async () => {
     const project = await api.createProject({
       name: 'New Service',
-      scenario: 'tech-debt',
+      scenario: 'cto_onboarding',
     });
     expect(project.id).toBe('proj-new');
     expect(project.name).toBe('New Service');
@@ -64,7 +64,7 @@ describe('API Client', () => {
     expect(report.dimensions).toHaveLength(3);
     expect(report.components).toHaveLength(2);
     expect(report.hotspots).toHaveLength(2);
-    expect(report.trends).toHaveLength(5);
+    expect(report.trends).toHaveLength(0);
     expect(report.summary).toBeTruthy();
   });
 
@@ -88,7 +88,7 @@ describe('API Client', () => {
 
   it('getTrends returns feature/bug trends', async () => {
     const trends = await api.getTrends('proj-1');
-    expect(trends).toHaveLength(5);
+    expect(trends).toHaveLength(3);
     expect(trends[0].period).toBe('2026-01-01');
   });
 });

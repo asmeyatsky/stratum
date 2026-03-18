@@ -56,6 +56,14 @@ docker-down: ## Stop docker-compose
 generate-client: ## Generate TypeScript API client from OpenAPI spec
 	./scripts/generate-api-client.sh
 
+# ─── Data ───────────────────────────────────────────────
+
+seed: ## Seed database with demo projects and analysis results
+	python3 scripts/seed_data.py
+
+dev-seeded: ## Start API with demo data + frontend
+	STRATUM_SEED=1 make -j2 api frontend-dev
+
 # ─── Setup ──────────────────────────────────────────────
 
 install: ## Install all dependencies

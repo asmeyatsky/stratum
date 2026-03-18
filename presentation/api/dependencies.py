@@ -116,10 +116,21 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "ApiKey"},
             )
 
-    # --- Strategy 3: Dev mode (no STRATUM_API_KEY set) ---
-    return UserInfo(
-        user_id="usr_mvp_001",
-        email="analyst@stratum.dev",
-        name="Stratum Analyst",
-        role="analyst",
+    # --- Strategy 3: Dev mode (only when STRATUM_DEV_MODE=true) ---
+    if os.environ.get("STRATUM_DEV_MODE", "").lower() == "true":
+        logger.warning(
+            "Dev mode auth bypass active — returning static user. "
+            "Do NOT use STRATUM_DEV_MODE=true in production."
+        )
+        return UserInfo(
+            user_id="usr_mvp_001",
+            email="analyst@stratum.dev",
+            name="Stratum Analyst",
+            role="analyst",
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required. Provide Authorization or X-API-Key header.",
+        headers={"WWW-Authenticate": "Bearer"},
     )

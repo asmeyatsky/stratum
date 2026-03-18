@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   BarChart,
   Bar,
@@ -10,29 +10,11 @@ import {
   Cell,
 } from 'recharts';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import api from '../../api/client';
 import type { DimensionScore } from '../../types';
 import SeverityBadge from '../../components/SeverityBadge';
 import ExportButton from '../../components/ExportButton';
-
-function getScoreColor(score: number): string {
-  if (score >= 7) return '#22c55e';
-  if (score >= 4) return '#eab308';
-  return '#ef4444';
-}
-
-function SkeletonChart() {
-  return (
-    <div className="animate-pulse">
-      <div className="mb-6 h-72 rounded-xl bg-navy-800/40" />
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-16 rounded-lg bg-navy-800/40" />
-        ))}
-      </div>
-    </div>
-  );
-}
+import { useProjectContext } from '../ProjectDetail';
+import { getScoreColor } from '../../utils/scores';
 
 interface DimensionRowProps {
   dimension: DimensionScore;
@@ -120,59 +102,23 @@ interface CustomTooltipProps {
   payload?: Array<{ payload: DimensionScore; value: number }>;
 }
 
-function CustomTooltip({ active, payload }: CustomTooltipProps) {
+function ChartTooltip({ active, payload }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   const dim = payload[0].payload;
   return (
     <div className="rounded-lg border border-navy-700 bg-navy-900 px-3 py-2 shadow-xl">
-      <p className="text-sm font-medium text-white">{dim.name}</p>
-      <p className="text-xs text-navy-400">
-        Score:{' '}
-        <span style={{ color: getScoreColor(dim.score) }}>
-          {dim.score.toFixed(1)}
-        </span>
+      <p className="text-xs font-medium text-navy-200">{dim.name}</p>
+      <p className="text-lg font-bold" style={{ color: getScoreColor(dim.score) }}>
+        {dim.score.toFixed(1)}
       </p>
       <p className="text-xs text-navy-500">{dim.severity}</p>
     </div>
   );
 }
 
-export default function DimensionsView({
-  projectId,
-}: {
-  projectId: string;
-}) {
-  const [dimensions, setDimensions] = useState<DimensionScore[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getDimensions(projectId)
-      .then((data) => {
-        if (!cancelled) setDimensions(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  if (loading) return <SkeletonChart />;
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-8 text-center text-sm text-red-400">
-        {error}
-      </div>
-    );
-  }
+export default function DimensionsView() {
+  const { report } = useProjectContext();
+  const dimensions = report?.dimensions ?? [];
 
   if (dimensions.length === 0) {
     return (
@@ -182,23 +128,32 @@ export default function DimensionsView({
     );
   }
 
-  const sortedForChart = [...dimensions].sort(
-    (a, b) => a.score - b.score,
+  const chartData = useMemo(
+    () => [...dimensions].sort((a, b) => b.score - a.score),
+    [dimensions],
   );
 
   return (
     <div className="space-y-6">
       {/* Bar Chart */}
       <div className="rounded-xl border border-navy-800 bg-navy-800/20 p-5">
-        <h3 className="mb-4 text-sm font-semibold text-navy-200">
-          Dimension Scores
-        </h3>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart
-            data={sortedForChart}
-            layout="vertical"
-            margin={{ top: 0, right: 20, bottom: 0, left: 0 }}
-          >
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-navy-200">
+            Dimension Scores
+          </h3>
+          <ExportButton
+            data={dimensions.map((d) => ({
+              dimension: d.name,
+              score: d.score,
+              severity: d.severity,
+              weight: d.weight,
+              evidence: d.evidence.join('; '),
+            }))}
+            filename="dimensions"
+          />
+        </div>
+        <ResponsiveContainer width="100%" height={Math.max(280, dimensions.length * 32)}>
+          <BarChart data={chartData} layout="vertical" margin={{ left: 120 }}>
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="#1e293b"
@@ -207,50 +162,30 @@ export default function DimensionsView({
             <XAxis
               type="number"
               domain={[0, 10]}
-              tick={{ fill: '#64748b', fontSize: 12 }}
+              tick={{ fill: '#64748b', fontSize: 11 }}
               axisLine={{ stroke: '#334155' }}
-              tickLine={{ stroke: '#334155' }}
+              tickLine={false}
             />
             <YAxis
               type="category"
               dataKey="name"
-              width={160}
               tick={{ fill: '#94a3b8', fontSize: 11 }}
               axisLine={false}
               tickLine={false}
+              width={110}
             />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(30, 41, 59, 0.5)' }} />
+            <Tooltip content={<ChartTooltip />} />
             <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={18}>
-              {sortedForChart.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={getScoreColor(entry.score)}
-                />
+              {chartData.map((entry, index) => (
+                <Cell key={index} fill={getScoreColor(entry.score)} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Detail Table */}
+      {/* Dimension List */}
       <div className="space-y-2">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-navy-200">
-            Dimension Details
-          </h3>
-          <ExportButton
-            data={dimensions.map((d) => ({
-              id: d.id,
-              name: d.name,
-              score: d.score,
-              severity: d.severity,
-              weight: d.weight,
-              description: d.description,
-              evidence: d.evidence.join('; '),
-            }))}
-            filename={`dimensions-${projectId}`}
-          />
-        </div>
         {[...dimensions]
           .sort((a, b) => a.score - b.score)
           .map((dim) => (

@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from 'react';
-import api from '../../api/client';
+import { useState, useMemo } from 'react';
 import type { ComponentRisk, Severity } from '../../types';
 import SeverityBadge from '../../components/SeverityBadge';
 import ExportButton from '../../components/ExportButton';
 import { ArrowUpDown, AlertTriangle } from 'lucide-react';
+import { useProjectContext } from '../ProjectDetail';
+import { getScoreColor } from '../../utils/scores';
 
 function getSeverityForScore(score: number): Severity {
   if (score >= 8) return 'critical';
@@ -28,43 +29,11 @@ function getHeatTextColor(value: number): string {
   return 'text-navy-400';
 }
 
-function Skeleton() {
-  return (
-    <div className="animate-pulse space-y-4">
-      <div className="h-8 w-48 rounded bg-navy-800" />
-      <div className="h-96 rounded-xl bg-navy-800/40" />
-    </div>
-  );
-}
-
-export default function ComponentsView({
-  projectId,
-}: {
-  projectId: string;
-}) {
-  const [components, setComponents] = useState<ComponentRisk[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function ComponentsView() {
+  const { report } = useProjectContext();
+  const components = report?.components ?? [];
   const [sortBy, setSortBy] = useState<'score' | 'name'>('score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getComponents(projectId)
-      .then((data) => {
-        if (!cancelled) setComponents(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
 
   const allDimensionKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -94,16 +63,6 @@ export default function ComponentsView({
       setSortDir('desc');
     }
   };
-
-  if (loading) return <Skeleton />;
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-8 text-center text-sm text-red-400">
-        {error}
-      </div>
-    );
-  }
 
   if (components.length === 0) {
     return (
@@ -210,7 +169,7 @@ export default function ComponentsView({
               file_count: c.file_count,
               systemic_risks: c.systemic_risks.join('; '),
             }))}
-            filename={`components-${projectId}`}
+            filename="components"
           />
         </div>
         <table className="w-full">
@@ -266,12 +225,7 @@ export default function ComponentsView({
                   <span
                     className="text-sm font-bold"
                     style={{
-                      color:
-                        comp.composite_score >= 7
-                          ? '#ef4444'
-                          : comp.composite_score >= 4
-                            ? '#eab308'
-                            : '#22c55e',
+                      color: getScoreColor(comp.composite_score),
                     }}
                   >
                     {comp.composite_score.toFixed(1)}

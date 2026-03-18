@@ -158,15 +158,16 @@ async def connect_github(
     try:
         user_info = await adapter.validate_token()
     except ValueError as exc:
+        logger.exception("GitHub connect failed — invalid credentials")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
+            detail="GitHub authentication failed. Check your token.",
         )
     except Exception as exc:
         logger.exception("GitHub connect failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to GitHub: {exc}",
+            detail="Failed to connect to GitHub. Check server logs for details.",
         )
 
     # Store token for subsequent requests
@@ -243,15 +244,16 @@ async def list_repos(
     except HTTPException:
         raise
     except ValueError as exc:
+        logger.exception("Failed to list GitHub repos — invalid credentials")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
+            detail="GitHub authentication failed. Check your token.",
         )
     except Exception as exc:
         logger.exception("Failed to list GitHub repos")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to retrieve repositories from GitHub: {exc}",
+            detail="Failed to retrieve repositories from GitHub. Check server logs for details.",
         )
 
 
@@ -294,20 +296,22 @@ async def import_repo(
         )
 
     except ValueError as exc:
+        logger.exception("GitHub import failed — value error for %s/%s", owner, repo)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            detail="Repository not found or inaccessible.",
         )
     except ConnectionError as exc:
+        logger.exception("GitHub import failed — connection error for %s/%s", owner, repo)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail="Failed to connect to GitHub. Check server logs for details.",
         )
     except Exception as exc:
         logger.exception("GitHub import failed for %s/%s", owner, repo)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import failed: {exc}",
+            detail="Import failed. Check server logs for details.",
         )
 
 
@@ -354,13 +358,14 @@ async def list_org_repos(
         )
 
     except ValueError as exc:
+        logger.exception("Failed to list repos for org %s — not found", org)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            detail="Organisation not found or inaccessible.",
         )
     except Exception as exc:
         logger.exception("Failed to list repos for org %s", org)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to retrieve organisation repositories: {exc}",
+            detail="Failed to retrieve organisation repositories. Check server logs for details.",
         )

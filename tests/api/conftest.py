@@ -2,8 +2,10 @@
 
 import os
 
-# Set a very high rate limit before the middleware module is imported.
-# The RateLimitMiddleware reads these at import time.
+# Set environment variables before any application modules are imported.
+# STRATUM_DEV_MODE enables dev-mode auth bypass (no JWT_SECRET or API key needed).
+# Rate limit values are read at import time by RateLimitMiddleware.
+os.environ["STRATUM_DEV_MODE"] = "true"
 os.environ["RATE_LIMIT_RPM"] = "100000"
 os.environ["RATE_LIMIT_BURST"] = "10000"
 

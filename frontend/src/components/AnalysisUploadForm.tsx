@@ -8,16 +8,17 @@ interface AnalysisUploadFormProps {
 }
 
 const SCENARIOS: { value: Scenario; label: string; description: string }[] = [
-  { value: 'default', label: 'Default', description: 'Standard analysis' },
-  { value: 'pre-release', label: 'Pre-Release', description: 'Focus on stability risks' },
-  { value: 'onboarding', label: 'Onboarding', description: 'Developer onboarding insights' },
-  { value: 'tech-debt', label: 'Tech Debt', description: 'Technical debt assessment' },
-  { value: 'post-incident', label: 'Post-Incident', description: 'Post-incident review' },
+  { value: 'cto_onboarding', label: 'CTO Onboarding', description: 'New leadership codebase assessment' },
+  { value: 'ma_due_diligence', label: 'M&A Due Diligence', description: 'Pre-acquisition risk analysis' },
+  { value: 'vendor_audit', label: 'Vendor Audit', description: 'Third-party code quality review' },
+  { value: 'post_merger', label: 'Post-Merger', description: 'Integration risk assessment' },
+  { value: 'decommission', label: 'Decommission', description: 'End-of-life evaluation' },
+  { value: 'oss_assessment', label: 'OSS Assessment', description: 'Open source health check' },
 ];
 
 export default function AnalysisUploadForm({
   onSubmit,
-  currentScenario = 'default',
+  currentScenario = 'cto_onboarding',
 }: AnalysisUploadFormProps) {
   const [gitLogFile, setGitLogFile] = useState<File | null>(null);
   const [manifestFiles, setManifestFiles] = useState<File[]>([]);

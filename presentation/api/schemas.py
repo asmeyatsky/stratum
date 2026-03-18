@@ -194,6 +194,7 @@ class TrendDataPoint(BaseModel):
     features: int = Field(default=0, description="Feature commit count")
     bugs: int = Field(default=0, description="Bug-fix commit count")
     refactors: int = Field(default=0, description="Refactoring commit count")
+    bug_fix_ratio: float = Field(default=0.0, description="Ratio of bug fixes to total commits")
     total_commits: int = Field(default=0, description="Total commits in period")
 
 

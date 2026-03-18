@@ -1,9 +1,10 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ArrowUpDown, Clock, GitBranch, Bug, Users } from 'lucide-react';
-import api from '../../api/client';
 import type { FileHotspot } from '../../types';
 import SeverityBadge from '../../components/SeverityBadge';
 import ExportButton from '../../components/ExportButton';
+import { useProjectContext } from '../ProjectDetail';
+import { getScoreColor } from '../../utils/scores';
 
 function getEffortColor(effort: string): { bg: string; text: string } {
   switch (effort) {
@@ -36,46 +37,13 @@ function IndicatorBar({
   );
 }
 
-function Skeleton() {
-  return (
-    <div className="animate-pulse space-y-3">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="h-16 rounded-lg bg-navy-800/40" />
-      ))}
-    </div>
-  );
-}
-
 type SortKey = 'risk_score' | 'churn_rate' | 'complexity' | 'bug_correlation' | 'ownership_fragmentation';
 
-export default function HotspotsView({
-  projectId,
-}: {
-  projectId: string;
-}) {
-  const [hotspots, setHotspots] = useState<FileHotspot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function HotspotsView() {
+  const { report } = useProjectContext();
+  const hotspots = report?.hotspots ?? [];
   const [sortBy, setSortBy] = useState<SortKey>('risk_score');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getHotspots(projectId)
-      .then((data) => {
-        if (!cancelled) setHotspots(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
 
   const sorted = useMemo(() => {
     return [...hotspots]
@@ -104,16 +72,6 @@ export default function HotspotsView({
       setSortDir('desc');
     }
   };
-
-  if (loading) return <Skeleton />;
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-8 text-center text-sm text-red-400">
-        {error}
-      </div>
-    );
-  }
 
   if (hotspots.length === 0) {
     return (
@@ -145,7 +103,7 @@ export default function HotspotsView({
               effort_estimate: h.effort_estimate,
               indicators: h.indicators.join('; '),
             }))}
-            filename={`hotspots-${projectId}`}
+            filename="hotspots"
           />
         </div>
       </div>
@@ -253,12 +211,7 @@ export default function HotspotsView({
                       <span
                         className="text-sm font-bold"
                         style={{
-                          color:
-                            hotspot.risk_score >= 7
-                              ? '#ef4444'
-                              : hotspot.risk_score >= 4
-                                ? '#eab308'
-                                : '#22c55e',
+                          color: getScoreColor(hotspot.risk_score),
                         }}
                       >
                         {hotspot.risk_score.toFixed(1)}

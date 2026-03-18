@@ -2,13 +2,13 @@
 P6 — Integrated Risk & Quality Model Aggregation Service
 
 Architectural Intent:
-- Aggregates findings from P1, P2, P4 into unified risk model
+- Aggregates findings from P1, P2, P3, P4 into unified risk model
 - 15 quality dimensions scored on 1-10 severity scale
 - Produces component risk matrix, file hotspot catalogue, and overall health score
 - Pure domain service — receives pre-computed scores from analysis engines
 
 Parallelization Notes:
-- P1, P2, P4 score computation runs concurrently (no data dependency)
+- P1, P2, P3, P4 score computation runs concurrently (no data dependency)
 - Component risk matrix and file hotspots computed after all dimension scores are ready
 """
 
@@ -45,7 +45,25 @@ class RiskAggregationService:
         commits: list[Commit],
         p3_scores: dict[str, RiskScore] | None = None,
     ) -> RiskReport:
-        """Assemble the full P6 integrated risk report."""
+        """Assemble the full P6 integrated risk report.
+
+        Args:
+            project_name: Name of the project being analysed.
+            scenario: Analysis scenario (e.g. ``"M&A"``).
+            p1_scores: Dimension scores from P1 (Evolution Analysis).
+            p2_scores: Dimension scores from P2 (Commit Quality).
+            p4_scores: Dimension scores from P4 (Dependency Risk).
+            p3_scores: Dimension scores from P3 (Design Anti-Patterns).
+                Optional for backward compatibility; should always be
+                provided when running the full DAG pipeline.
+            knowledge_risks: Knowledge distribution risks from P1.
+            bug_magnets: Bug magnet files from P2.
+            churn_anomalies: High-churn file anomalies from P1.
+            commits: Full commit history.
+
+        Returns:
+            A fully assembled :class:`RiskReport`.
+        """
         # Merge all dimension scores
         all_scores: dict[str, RiskScore] = {}
         all_scores.update(p1_scores)
@@ -53,8 +71,7 @@ class RiskAggregationService:
         all_scores.update(p4_scores)
 
         if p3_scores:
-            for key, score in p3_scores.items():
-                all_scores[key] = score
+            all_scores.update(p3_scores)
 
         # Fill remaining dimensions with defaults for MVP
         for dim in ("code_complexity", "code_duplication", "coordination_risk",

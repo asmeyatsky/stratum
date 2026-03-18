@@ -1,16 +1,23 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'minimal';
 
-export type Scenario = 'default' | 'pre-release' | 'onboarding' | 'tech-debt' | 'post-incident';
+export type Scenario =
+  | 'ma_due_diligence'
+  | 'vendor_audit'
+  | 'post_merger'
+  | 'decommission'
+  | 'cto_onboarding'
+  | 'oss_assessment';
 
 export interface Project {
   id: string;
   name: string;
+  description: string;
   scenario: Scenario;
   created_at: string;
   updated_at: string;
   last_analysis_at: string | null;
   health_score: number | null;
-  status: 'pending' | 'analyzing' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed';
 }
 
 export interface AnalysisReport {

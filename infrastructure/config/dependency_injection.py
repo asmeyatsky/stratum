@@ -29,8 +29,10 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
 
+from domain.ports.ai_narrative_port import AINarrativePort
+from domain.ports.report_generator_port import ReportGeneratorPort
 from domain.services.evolution_analysis_service import EvolutionAnalysisService
 from domain.services.commit_quality_service import CommitQualityService
 from domain.services.design_antipattern_service import DesignAntipatternService
@@ -42,6 +44,10 @@ from infrastructure.adapters.manifest_parser import ManifestParser
 from infrastructure.adapters.nvd_vulnerability_adapter import NvdVulnerabilityAdapter
 from infrastructure.adapters.claude_narrative_adapter import ClaudeNarrativeAdapter
 from infrastructure.adapters.fallback_adapters import NoOpNarrativeAdapter, JsonReportAdapter
+
+if TYPE_CHECKING:
+    from infrastructure.adapters.github_adapter import GitHubAdapter
+    from infrastructure.adapters.jira_adapter import JiraAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +67,15 @@ class Container:
     """
 
     # Infrastructure adapters (port-compliant — always non-None)
-    git_log_parser: Any  # GitLogPort
+    git_log_parser: GitLogParser
     manifest_parser: ManifestParser
-    nvd_adapter: Any  # VulnerabilityDbPort
-    narrative_adapter: Any  # AINarrativePort (ClaudeNarrativeAdapter or NoOpNarrativeAdapter)
-    report_adapter: Any  # ReportGeneratorPort (WeasyprintReportAdapter or JsonReportAdapter)
+    nvd_adapter: NvdVulnerabilityAdapter
+    narrative_adapter: AINarrativePort
+    report_adapter: ReportGeneratorPort
 
     # Phase 2 connectors (optional — None when env vars not set)
-    github_adapter: Any | None  # GitHubPort (GitHubAdapter or None)
-    jira_adapter: Any | None  # JiraPort (JiraAdapter or None)
+    github_adapter: GitHubAdapter | None
+    jira_adapter: JiraAdapter | None
 
     # Domain services
     evolution_service: EvolutionAnalysisService
@@ -125,7 +131,7 @@ class Container:
 
         # Narrative adapter: Claude if API key available, otherwise no-op fallback
         resolved_anthropic_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-        narrative_adapter: Any
+        narrative_adapter: AINarrativePort
         if resolved_anthropic_key:
             try:
                 narrative_adapter = ClaudeNarrativeAdapter(api_key=resolved_anthropic_key)
@@ -143,7 +149,7 @@ class Container:
         # Report adapter: WeasyPrint if pango available, otherwise JSON fallback
         try:
             from infrastructure.adapters.weasyprint_report_adapter import WeasyprintReportAdapter
-            report_adapter: Any = WeasyprintReportAdapter()
+            report_adapter: ReportGeneratorPort = WeasyprintReportAdapter()
             logger.info("WeasyPrint PDF adapter enabled")
         except (OSError, RuntimeError, ImportError):
             logger.info(
@@ -155,7 +161,7 @@ class Container:
         # --- Phase 2 connectors (optional) ---
 
         # GitHub adapter
-        github_adapter: Any | None = None
+        github_adapter: GitHubAdapter | None = None
         resolved_github_token = github_token or os.environ.get("GITHUB_TOKEN")
         if resolved_github_token:
             try:
@@ -171,7 +177,7 @@ class Container:
             )
 
         # Jira adapter
-        jira_adapter: Any | None = None
+        jira_adapter: JiraAdapter | None = None
         resolved_jira_url = jira_url or os.environ.get("JIRA_URL")
         resolved_jira_email = jira_email or os.environ.get("JIRA_EMAIL")
         resolved_jira_token = jira_token or os.environ.get("JIRA_TOKEN")

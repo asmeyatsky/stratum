@@ -68,10 +68,19 @@ export default function ExportButton({
         setOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+      }
+    }
     if (open) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   const handleExportCSV = () => {
@@ -91,6 +100,8 @@ export default function ExportButton({
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setOpen(!open)}
+        aria-label="Export options"
+        aria-expanded={open}
         className="flex items-center gap-2 rounded-lg border border-navy-700 bg-navy-800 px-3 py-1.5 text-xs font-medium text-navy-300 transition hover:bg-navy-700 hover:text-navy-200"
       >
         <Download className="h-3.5 w-3.5" />

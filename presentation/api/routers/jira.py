@@ -166,15 +166,16 @@ async def connect_jira(
     try:
         server_info = await adapter.validate_connection()
     except ValueError as exc:
+        logger.exception("Jira connect failed — invalid credentials")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
+            detail="Jira authentication failed. Check your credentials.",
         )
     except Exception as exc:
         logger.exception("Jira connect failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to Jira: {exc}",
+            detail="Failed to connect to Jira. Check server logs for details.",
         )
 
     # Store credentials for subsequent requests
@@ -229,15 +230,16 @@ async def list_projects(
         )
 
     except ValueError as exc:
+        logger.exception("Failed to list Jira projects — invalid credentials")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
+            detail="Jira authentication failed. Check your credentials.",
         )
     except Exception as exc:
         logger.exception("Failed to list Jira projects")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to retrieve Jira projects: {exc}",
+            detail="Failed to retrieve Jira projects. Check server logs for details.",
         )
 
 
@@ -313,13 +315,14 @@ async def import_project_issues(
         )
 
     except ValueError as exc:
+        logger.exception("Jira import failed — auth error for project %s", project_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
+            detail="Jira authentication failed. Check your credentials.",
         )
     except Exception as exc:
         logger.exception("Jira import failed for project %s", project_key)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Import failed: {exc}",
+            detail="Import failed. Check server logs for details.",
         )

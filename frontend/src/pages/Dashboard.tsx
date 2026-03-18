@@ -288,7 +288,7 @@ export default function Dashboard() {
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         project.status === 'completed'
                           ? 'bg-green-500/10 text-green-400'
-                          : project.status === 'analyzing'
+                          : project.status === 'running'
                             ? 'bg-blue-500/10 text-blue-400'
                             : project.status === 'failed'
                               ? 'bg-red-500/10 text-red-400'
